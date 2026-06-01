@@ -37,15 +37,20 @@ export const STYLES = `
   }
   /* ── responsive layout ── */
   .layout{display:flex;flex-direction:column;}
-  /* Wide: always row — both single-cam and grid share this layout */
+  /* Wide: side-by-side.
+     col-left drives card height (natural: stream + timeline + info + tabs + latest).
+     col-right max-height is set dynamically by JS to match col-left.offsetHeight
+     so the events panel never makes the card taller than the stream side. */
   .card.wide .layout{flex-direction:row;align-items:flex-start;}
-  .card.wide .col-left{width:62%;flex-shrink:0;}
-  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;max-height:85vh;border-left:1px solid var(--c-border);position:sticky;top:0;display:flex;flex-direction:column;}
+  .card.wide .col-left{width:58%;flex-shrink:0;}
+  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);}
+  /* Cap stream height so a full-width section doesn't produce an 800px stream.
+     User can override via stream_height config. */
+  .card.wide #eng-wrap{max-height:var(--stream-h,55vh);}
   .card.wide .browse-toggle{display:none;}
   .card.wide .browse{display:block!important;}
-  /* Narrow grid mode: stack but show the grid */
-  .card:not(.wide).grid-mode .browse{display:block!important;}
-  .card:not(.wide).grid-mode .browse-toggle{display:none!important;}
+  /* Narrow grid mode: grid stacks above events; browse is open by default
+     but the toggle is visible so the user can collapse it. */
 
   /* ── feed area ── */
   .feed-area{position:relative;width:100%;}
@@ -173,10 +178,8 @@ export const STYLES = `
 
   /* ── event list ── */
   .list-sec{padding:8px 13px 12px;}
-  /* In wide mode the right column scrolls as a whole — remove the inner cap so
-     the list fills all available height instead of leaving dead space below. */
-  .card.wide .list-sec{flex:1;display:flex;flex-direction:column;padding-bottom:6px;}
-  .card.wide .list{flex:1;max-height:none;overflow-y:visible;}
+  /* Wide: col-right scrolls the whole events panel, no inner list cap needed */
+  .card.wide .list{max-height:none;overflow-y:visible;}
   .list-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
   .newtoast{font-size:10px;font-weight:700;color:var(--c-on);}
   .list{max-height:460px;overflow-y:auto;}

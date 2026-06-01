@@ -87,6 +87,9 @@ export class FrigateModernHassCard extends HTMLElement {
 
   get _activeCam() { return this._config?.cameras[this._activeCamIdx] || this._config?.cameras[0]; }
   getCardSize() { return 10; }
+  // HA Sections grid: default to 2 columns × 3 rows so the card is a sensible size.
+  // Users can override in their dashboard yaml via grid_options.
+  getGridSize() { return { columns: 2, rows: 3 }; }
 
   disconnectedCallback() {
     this._stopRotate();
@@ -444,9 +447,21 @@ export class FrigateModernHassCard extends HTMLElement {
   _applyCardStyle() {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
 
-    // Stream height
+    // Stream height — also auto-detected from HA Sections --ha-card-height variable.
+    // When a Sections row has a fixed height, HA injects --ha-card-height on the host.
+    // We propagate it as --stream-h so the stream fills the section naturally.
     const vh = this._config.stream_height;
-    card.style.setProperty('--stream-h', vh ? `${vh}vh` : '');
+    if (vh) {
+      card.style.setProperty('--stream-h', `${vh}vh`);
+    } else {
+      // Check if HA Sections injected a card height on the host element
+      const haCardH = getComputedStyle(this).getPropertyValue('--ha-card-height').trim();
+      if (haCardH) {
+        card.style.setProperty('--stream-h', haCardH);
+      } else {
+        card.style.removeProperty('--stream-h');
+      }
+    }
 
     // Theme — for 'auto' prefer HA's own dark-mode flag, fall back to OS media query
     let theme = this._config.theme || 'dark';
@@ -486,12 +501,25 @@ export class FrigateModernHassCard extends HTMLElement {
       this._cardWidth = w;
       const card = this.shadowRoot.querySelector('.card');
       if (!card) return;
-      const wide = w >= 700, mobile = w < 500;
+      const wide = w >= 560, mobile = w < 420;
       card.classList.toggle('wide', wide);
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
+      if (wide) this._syncColHeight();
     });
     this._ro.observe(this);
+  }
+
+  // Match col-right height to col-left so the events panel never makes the card
+  // taller than the stream side, and col-right scrolls within that bounded height.
+  _syncColHeight() {
+    requestAnimationFrame(() => {
+      const l = this.shadowRoot.querySelector('.col-left');
+      const r = this.shadowRoot.querySelector('.col-right');
+      if (!l || !r) return;
+      const h = l.offsetHeight;
+      if (h > 0) r.style.maxHeight = h + 'px';
+    });
   }
 
   // ── cam switcher ──────────────────────────────────────────
@@ -777,9 +805,12 @@ export class FrigateModernHassCard extends HTMLElement {
 
   // ── browse / filter ───────────────────────────────────────
   _applyBrowse() {
-    const isWide = this.shadowRoot.querySelector('.card')?.classList.contains('wide');
+    const card = this.shadowRoot.querySelector('.card');
+    const isWide = card?.classList.contains('wide');
+    const isGrid = card?.classList.contains('grid-mode');
     const b=this.shadowRoot.querySelector('#browse'); const c=this.shadowRoot.querySelector('#chev2');
-    const forceOpen = isWide; // always open on wide, both single and grid
+    // Wide: always open. Narrow grid: open by default but collapsable via toggle.
+    const forceOpen = isWide;
     if (b) b.style.display=(forceOpen||this._browseOpen)?'block':'none';
     if (c) c.style.transform=(forceOpen||this._browseOpen)?'rotate(180deg)':'';
   }
@@ -881,7 +912,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // Cached querySelector — avoids repeated DOM lookups on every render tick
   _$(sel) { return this._domCache[sel] || (this._domCache[sel] = this.shadowRoot.querySelector(sel)); }
 
-  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher(); }
+  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
   _renderRange() {
     const el=this._$('#tl-range'); if(!el) return;

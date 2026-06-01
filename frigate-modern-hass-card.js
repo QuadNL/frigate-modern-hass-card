@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '6.8.0';
+const VERSION = '1.0.0';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -87,15 +87,20 @@ const STYLES = `
   }
   /* ── responsive layout ── */
   .layout{display:flex;flex-direction:column;}
-  /* Wide: always row — both single-cam and grid share this layout */
+  /* Wide: side-by-side.
+     col-left drives card height (natural: stream + timeline + info + tabs + latest).
+     col-right max-height is set dynamically by JS to match col-left.offsetHeight
+     so the events panel never makes the card taller than the stream side. */
   .card.wide .layout{flex-direction:row;align-items:flex-start;}
-  .card.wide .col-left{width:62%;flex-shrink:0;}
-  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;max-height:85vh;border-left:1px solid var(--c-border);position:sticky;top:0;display:flex;flex-direction:column;}
+  .card.wide .col-left{width:58%;flex-shrink:0;}
+  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);}
+  /* Cap stream height so a full-width section doesn't produce an 800px stream.
+     User can override via stream_height config. */
+  .card.wide #eng-wrap{max-height:var(--stream-h,55vh);}
   .card.wide .browse-toggle{display:none;}
   .card.wide .browse{display:block!important;}
-  /* Narrow grid mode: stack but show the grid */
-  .card:not(.wide).grid-mode .browse{display:block!important;}
-  .card:not(.wide).grid-mode .browse-toggle{display:none!important;}
+  /* Narrow grid mode: grid stacks above events; browse is open by default
+     but the toggle is visible so the user can collapse it. */
 
   /* ── feed area ── */
   .feed-area{position:relative;width:100%;}
@@ -223,10 +228,8 @@ const STYLES = `
 
   /* ── event list ── */
   .list-sec{padding:8px 13px 12px;}
-  /* In wide mode the right column scrolls as a whole — remove the inner cap so
-     the list fills all available height instead of leaving dead space below. */
-  .card.wide .list-sec{flex:1;display:flex;flex-direction:column;padding-bottom:6px;}
-  .card.wide .list{flex:1;max-height:none;overflow-y:visible;}
+  /* Wide: col-right scrolls the whole events panel, no inner list cap needed */
+  .card.wide .list{max-height:none;overflow-y:visible;}
   .list-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
   .newtoast{font-size:10px;font-weight:700;color:var(--c-on);}
   .list{max-height:460px;overflow-y:auto;}
@@ -391,6 +394,9 @@ class FrigateModernHassCard extends HTMLElement {
 
   get _activeCam() { return this._config?.cameras[this._activeCamIdx] || this._config?.cameras[0]; }
   getCardSize() { return 10; }
+  // HA Sections grid: default to 2 columns × 3 rows so the card is a sensible size.
+  // Users can override in their dashboard yaml via grid_options.
+  getGridSize() { return { columns: 2, rows: 3 }; }
 
   disconnectedCallback() {
     this._stopRotate();
@@ -748,9 +754,21 @@ class FrigateModernHassCard extends HTMLElement {
   _applyCardStyle() {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
 
-    // Stream height
+    // Stream height — also auto-detected from HA Sections --ha-card-height variable.
+    // When a Sections row has a fixed height, HA injects --ha-card-height on the host.
+    // We propagate it as --stream-h so the stream fills the section naturally.
     const vh = this._config.stream_height;
-    card.style.setProperty('--stream-h', vh ? `${vh}vh` : '');
+    if (vh) {
+      card.style.setProperty('--stream-h', `${vh}vh`);
+    } else {
+      // Check if HA Sections injected a card height on the host element
+      const haCardH = getComputedStyle(this).getPropertyValue('--ha-card-height').trim();
+      if (haCardH) {
+        card.style.setProperty('--stream-h', haCardH);
+      } else {
+        card.style.removeProperty('--stream-h');
+      }
+    }
 
     // Theme — for 'auto' prefer HA's own dark-mode flag, fall back to OS media query
     let theme = this._config.theme || 'dark';
@@ -790,12 +808,25 @@ class FrigateModernHassCard extends HTMLElement {
       this._cardWidth = w;
       const card = this.shadowRoot.querySelector('.card');
       if (!card) return;
-      const wide = w >= 700, mobile = w < 500;
+      const wide = w >= 560, mobile = w < 420;
       card.classList.toggle('wide', wide);
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
+      if (wide) this._syncColHeight();
     });
     this._ro.observe(this);
+  }
+
+  // Match col-right height to col-left so the events panel never makes the card
+  // taller than the stream side, and col-right scrolls within that bounded height.
+  _syncColHeight() {
+    requestAnimationFrame(() => {
+      const l = this.shadowRoot.querySelector('.col-left');
+      const r = this.shadowRoot.querySelector('.col-right');
+      if (!l || !r) return;
+      const h = l.offsetHeight;
+      if (h > 0) r.style.maxHeight = h + 'px';
+    });
   }
 
   // ── cam switcher ──────────────────────────────────────────
@@ -1081,9 +1112,12 @@ class FrigateModernHassCard extends HTMLElement {
 
   // ── browse / filter ───────────────────────────────────────
   _applyBrowse() {
-    const isWide = this.shadowRoot.querySelector('.card')?.classList.contains('wide');
+    const card = this.shadowRoot.querySelector('.card');
+    const isWide = card?.classList.contains('wide');
+    const isGrid = card?.classList.contains('grid-mode');
     const b=this.shadowRoot.querySelector('#browse'); const c=this.shadowRoot.querySelector('#chev2');
-    const forceOpen = isWide; // always open on wide, both single and grid
+    // Wide: always open. Narrow grid: open by default but collapsable via toggle.
+    const forceOpen = isWide;
     if (b) b.style.display=(forceOpen||this._browseOpen)?'block':'none';
     if (c) c.style.transform=(forceOpen||this._browseOpen)?'rotate(180deg)':'';
   }
@@ -1185,7 +1219,7 @@ class FrigateModernHassCard extends HTMLElement {
   // Cached querySelector — avoids repeated DOM lookups on every render tick
   _$(sel) { return this._domCache[sel] || (this._domCache[sel] = this.shadowRoot.querySelector(sel)); }
 
-  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher(); }
+  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
   _renderRange() {
     const el=this._$('#tl-range'); if(!el) return;
