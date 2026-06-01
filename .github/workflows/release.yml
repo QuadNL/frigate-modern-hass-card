@@ -1,0 +1,20 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload-release-asset:
+    name: Upload JS to release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload frigate-modern-hass-card.js
+        uses: softprops/action-gh-release@v2
+        with:
+          files: frigate-modern-hass-card.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
