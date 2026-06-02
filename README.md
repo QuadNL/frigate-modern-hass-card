@@ -23,7 +23,7 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 
 1. Open HACS → Frontend
 2. Click ⋮ → Custom repositories
-3. Add `https://github.com/QuadNL/frigate-modern-hass-card` as type **Lovelace**
+3. Add `https://github.com/QuadNL/frigate-modern-hass-card` as type **Dashboard**
 4. Install "Frigate Modern Hass Card"
 5. Hard-refresh your browser
 
