@@ -1,5 +1,8 @@
 # Frigate Modern Hass Card
 
+> **AI Assistance Notice**
+> This card was built with the help of an AI coding assistant. All code has been personally reviewed, tested on a real Frigate setup, and is actively maintained. Found a bug or have a suggestion? Open an issue on GitHub.
+
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/QuadNL/frigate-modern-hass-card.svg)](https://github.com/QuadNL/frigate-modern-hass-card/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
