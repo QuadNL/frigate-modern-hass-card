@@ -91,6 +91,10 @@ default_view: single     # or 'grid'
 - [Frigate NVR](https://frigate.video) with the [Frigate Home Assistant integration](https://github.com/blakeblackshear/frigate-hass-integration)
 - Home Assistant 2023.x or later
 
+## Support
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/U2W120MCVZ)
+
 ## License
 
 MIT © QuadNL
