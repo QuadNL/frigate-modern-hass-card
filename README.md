@@ -50,7 +50,7 @@ type: custom:frigate-modern-hass-card
 camera_entity: camera.front_door
 ```
 
-<img width="400" height="100%" alt="Image_4u8a6l4u8a6l4u8a1" src="https://github.com/user-attachments/assets/9e10b2f5-1069-4265-b949-8589283353d4" />
+![Single camera view](https://github.com/user-attachments/assets/9e10b2f5-1069-4265-b949-8589283353d4)
 
 ### Multi-camera
 ```yaml
@@ -67,7 +67,7 @@ cameras:
     name: Side Gate
 default_view: single     # or 'grid'
 ```
-<img width="400" height="100%" alt="Image_4u8a6l4u8a6l4u8a2" src="https://github.com/user-attachments/assets/51109eec-b8b3-424a-aa77-322c9a00e71a" />
+![Multi-camera grid view](https://github.com/user-attachments/assets/51109eec-b8b3-424a-aa77-322c9a00e71a)
 
 ### All options
 | Option | Type | Default | Description |
