@@ -93,6 +93,7 @@ default_view: single     # or 'grid'
 
 ## Support
 
+If you like this card; why don't buy me a coffee? 😊
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/U2W120MCVZ)
 
 ## License
