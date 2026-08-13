@@ -57,11 +57,9 @@ export class FrigateModernHassCard extends HTMLElement {
       theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
-      debug: config.debug === true,
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
-    if (this._config.debug) this._loadEruda();
     this._renderShell();
   }
 
@@ -448,7 +446,6 @@ export class FrigateModernHassCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `<style>${STYLES}</style>
       <ha-card class="card ${this._config.theme==='light'?'theme-light':this._config.theme==='auto'?'theme-auto':''}" id="card">
-        ${this._config.debug ? `<div class="debug-badge">debug: on v${VERSION}</div>` : ''}
         <div class="layout" id="layout">
           <div class="col-left">
             <!-- feed: single stream or grid -->
@@ -659,7 +656,6 @@ export class FrigateModernHassCard extends HTMLElement {
     const gridFs = e.target.closest('[data-grid-fs]');
     if (gridFs) { e.stopPropagation(); this._fullscreen(this.shadowRoot.querySelector('#cam-grid')); return; }
     const card = e.target.closest('[data-ev]'); if (card) {
-      if (this._config?.debug) console.log('[frigate-card] card tap, ev id:', card.dataset.ev, 'viewMode:', this._viewMode);
       if (this._viewMode === 'grid') {
         this._openInGridSlot(card.dataset.ev);
       } else {
@@ -722,7 +718,6 @@ export class FrigateModernHassCard extends HTMLElement {
 
   _open(id) {
     const ev=this._allDisplayEvents().find(e=>e.id===id);
-    if (this._config?.debug) console.log('[frigate-card] _open', id, 'found:', !!ev, ev);
     if(!ev) return;
     if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
@@ -757,8 +752,7 @@ export class FrigateModernHassCard extends HTMLElement {
       const blob = await res.blob();
       this._clipBlobUrl = URL.createObjectURL(blob);
       return this._clipBlobUrl;
-    } catch (err) {
-      if (this._config?.debug) console.error('[frigate-card] blob fetch failed, falling back to direct URL:', err);
+    } catch (_) {
       return url;
     }
   }
@@ -776,23 +770,6 @@ export class FrigateModernHassCard extends HTMLElement {
     if (this._hlsNative()) return this._signed(this._vod(id));
     return this._loadClipBlob(await this._signed(this._media(id,'clip.mp4')));
   }
-  // Debug-only: wire up load/error/play diagnostics on a just-inserted <video> so
-  // the real MediaError (network vs. unsupported source vs. decode) shows in Eruda.
-  _debugWireVideo(url) {
-    if (!this._config?.debug) return;
-    const vid = this.shadowRoot.querySelector('#viewer video');
-    if (!vid) { console.log('[frigate-card] debug: no <video> found in #viewer after insert'); return; }
-    console.log('[frigate-card] video src set:', url);
-    vid.addEventListener('loadedmetadata', () => console.log('[frigate-card] video loadedmetadata, duration=', vid.duration));
-    vid.addEventListener('canplay', () => console.log('[frigate-card] video canplay'));
-    vid.addEventListener('playing', () => console.log('[frigate-card] video playing'));
-    vid.addEventListener('stalled', () => console.log('[frigate-card] video stalled'));
-    vid.addEventListener('error', () => {
-      const err = vid.error;
-      console.error('[frigate-card] video error code=', err?.code, 'message=', err?.message, 'networkState=', vid.networkState, 'readyState=', vid.readyState);
-    });
-    vid.play().catch(err => console.error('[frigate-card] video.play() rejected:', err?.name, err?.message));
-  }
   async _showClip(ev) {
     const token = ++this._playSeq;
     this._enter(); this._playing={id:ev.id};
@@ -801,7 +778,6 @@ export class FrigateModernHassCard extends HTMLElement {
     const playUrl = await this._resolveClipUrl(ev.id);
     if (this._playSeq !== token) return;
     viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
-    this._debugWireVideo(playUrl);
   }
   async _showClipById(id) {
     if(!id) return;
@@ -812,7 +788,6 @@ export class FrigateModernHassCard extends HTMLElement {
     const playUrl = await this._resolveClipUrl(id);
     if (this._playSeq !== token) return;
     viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
-    this._debugWireVideo(playUrl);
   }
   async _showSnapshot(ev) {
     this._enter(); this._playing={id:ev.id};
@@ -929,16 +904,6 @@ export class FrigateModernHassCard extends HTMLElement {
     // Play from start immediately so user sees something while positioning the bar
     this._showRecording(rs, re);
   }
-  // Debug-only: injects an on-device devtools console (Eruda) so errors/network
-  // can be inspected directly on a phone, without Safari remote debugging / a Mac.
-  _loadEruda() {
-    if (window.eruda || window.__frigateErudaLoading) return;
-    window.__frigateErudaLoading = true;
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/eruda';
-    s.onload = () => { try { window.eruda.init(); } catch(_) {} };
-    document.head.appendChild(s);
-  }
   async _signed(path) { try { const r=await this._hass.callWS({type:'auth/sign_path',path,expires:3600}); return r?.path||path; } catch(_) { return path; } }
   // Recursively find a <video>, piercing open shadow roots (e.g. ha-camera-stream
   // renders its <video> inside its own shadow DOM, invisible to plain querySelector).
@@ -962,14 +927,12 @@ export class FrigateModernHassCard extends HTMLElement {
     // but silently no-ops/rejects — document.fullscreenEnabled is the real signal.
     // Only native fullscreen on the <video> element itself works there.
     const fsEnabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
-    if (this._config?.debug) console.log('[frigate-card] _fullscreen, fsEnabled:', fsEnabled, 'target:', el);
     if (!fsEnabled) {
       const vid = this._findVideo(el, 0);
-      if (this._config?.debug) console.log('[frigate-card] _fullscreen fallback, video found:', !!vid);
       if (vid && typeof vid.webkitEnterFullscreen === 'function') { vid.webkitEnterFullscreen(); return; }
     }
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { const p = req.call(el); if (p?.catch) p.catch(err => { if (this._config?.debug) console.error('[frigate-card] requestFullscreen rejected:', err); }); }
+    if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
   }
   _goNow() { const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
   _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
