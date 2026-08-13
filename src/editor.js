@@ -153,6 +153,11 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
       </div>
 
+      <div class="section">
+        <span class="field-label">Advanced</span>
+        <label class="chk-lbl"><input type="checkbox" name="debug" id="debug" ${this._config?.debug===true?'checked':''}> Show debug badge (version overlay)</label>
+      </div>
+
     </div>`;
 
     this.querySelector('#add-cam')?.addEventListener('click', () => {
@@ -204,6 +209,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     c.default_view = dv;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
+    // debug badge
+    c.debug = this.querySelector('#debug')?.checked === true;
     // hidden tabs
     const hidden = [...this.querySelectorAll('[data-hide-tab]')]
       .filter(el => el.checked).map(el => el.dataset.hideTab);

@@ -2,8 +2,9 @@
 // ── styles ───────────────────────────────────────────────────
 export const STYLES = `
   :host{display:block;}
-  .card{background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
+  .debug-badge{position:absolute;top:6px;left:8px;z-index:999;font-size:10px;font-weight:700;font-family:monospace;color:#eab308;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:4px;pointer-events:none;}
 
   /* ── theme variables (dark = default) ── */
   .card {
@@ -55,7 +56,9 @@ export const STYLES = `
   /* ── feed area ── */
   .feed-area{position:relative;width:100%;}
   #eng-wrap{position:relative;width:100%;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;}
-  #engine{position:absolute;inset:0;}
+  #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
+  #engine.zooming{transition:none;}
+  #engine:not(.zooming){transition:transform .15s ease-out;}
   #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}

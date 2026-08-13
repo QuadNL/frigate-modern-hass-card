@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# Internal-only, not for the public repo
+.archive/
+.claude/
+.versions/
+DEPLOYMENT_GUIDE.md
+MODULAR_ARCHITECTURE.md
