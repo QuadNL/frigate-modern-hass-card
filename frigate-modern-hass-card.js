@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -52,8 +52,9 @@ function camDisplayName(c) { return c.name || (c.entity||'').replace(/^camera\./
 // ── styles ───────────────────────────────────────────────────
 const STYLES = `
   :host{display:block;}
-  .card{background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
+  .debug-badge{position:absolute;top:6px;left:8px;z-index:999;font-size:10px;font-weight:700;font-family:monospace;color:#eab308;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:4px;pointer-events:none;}
 
   /* ── theme variables (dark = default) ── */
   .card {
@@ -105,7 +106,9 @@ const STYLES = `
   /* ── feed area ── */
   .feed-area{position:relative;width:100%;}
   #eng-wrap{position:relative;width:100%;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;}
-  #engine{position:absolute;inset:0;}
+  #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
+  #engine.zooming{transition:none;}
+  #engine:not(.zooming){transition:transform .15s ease-out;}
   #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
@@ -364,9 +367,11 @@ class FrigateModernHassCard extends HTMLElement {
       theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
+      debug: config.debug === true,
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
+    if (this._config.debug) this._loadEruda();
     this._renderShell();
   }
 
@@ -403,6 +408,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (this._refresh) clearInterval(this._refresh);
     if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
     if (this._ro) this._ro.disconnect();
+    this._revokeClipBlob();
   }
 
   // ── init ─────────────────────────────────────────────────
@@ -460,6 +466,77 @@ class FrigateModernHassCard extends HTMLElement {
     slot.innerHTML = ''; slot.appendChild(s);
     this._engine = s;
     this._renderStreamCtrl();
+  }
+
+  // Pinch-to-zoom + drag-to-pan on the live view (#engine). Deliberately not
+  // using the native Fullscreen API for this — iOS hands fullscreen video off
+  // to its own native player where our JS/CSS has no reach, so zoom has to be
+  // a plain in-card CSS transform + touch-event gesture instead.
+  _wirePinchZoom() {
+    const engine = this.shadowRoot.querySelector('#engine');
+    if (!engine || engine._pinchWired) return;
+    engine._pinchWired = true;
+    const MAX = 4;
+    let scale = 1, tx = 0, ty = 0;
+    let mode = null; // 'pinch' | 'pan'
+    let pinchStartDist = 1, pinchStartScale = 1, midX = 0, midY = 0;
+    let panStartX = 0, panStartY = 0, panStartTx = 0, panStartTy = 0;
+    let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+    const dist = (a,b) => Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const apply = () => { engine.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+    const clampPan = () => {
+      const w = engine.offsetWidth, h = engine.offsetHeight;
+      tx = Math.min(0, Math.max(w - w*scale, tx));
+      ty = Math.min(0, Math.max(h - h*scale, ty));
+    };
+    const zoomAt = (px, py, ns) => {
+      ns = Math.min(MAX, Math.max(1, ns));
+      tx = px - (px - tx) * (ns/scale);
+      ty = py - (py - ty) * (ns/scale);
+      scale = ns;
+      clampPan();
+    };
+    engine.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        mode = 'pinch';
+        engine.classList.add('zooming');
+        pinchStartDist = dist(e.touches[0], e.touches[1]) || 1;
+        pinchStartScale = scale;
+        const r = engine.getBoundingClientRect();
+        midX = (e.touches[0].clientX + e.touches[1].clientX)/2 - r.left;
+        midY = (e.touches[0].clientY + e.touches[1].clientY)/2 - r.top;
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0], now = Date.now();
+        if (now - lastTapT < 300 && Math.hypot(t.clientX-lastTapX, t.clientY-lastTapY) < 30) {
+          const r = engine.getBoundingClientRect();
+          if (scale > 1) { scale = 1; tx = 0; ty = 0; }
+          else zoomAt(t.clientX - r.left, t.clientY - r.top, 2.5);
+          apply();
+          lastTapT = 0;
+          return;
+        }
+        lastTapT = now; lastTapX = t.clientX; lastTapY = t.clientY;
+        if (scale > 1) {
+          mode = 'pan';
+          panStartX = t.clientX; panStartY = t.clientY; panStartTx = tx; panStartTy = ty;
+        }
+      }
+    }, { passive: true });
+    engine.addEventListener('touchmove', e => {
+      if (mode === 'pinch' && e.touches.length === 2) {
+        const d = dist(e.touches[0], e.touches[1]) || 1;
+        zoomAt(midX, midY, pinchStartScale * (d / pinchStartDist));
+        apply();
+      } else if (mode === 'pan' && e.touches.length === 1) {
+        const t = e.touches[0];
+        tx = panStartTx + (t.clientX - panStartX);
+        ty = panStartTy + (t.clientY - panStartY);
+        clampPan(); apply();
+      }
+    }, { passive: true });
+    const end = () => { mode = null; engine.classList.remove('zooming'); };
+    engine.addEventListener('touchend', end);
+    engine.addEventListener('touchcancel', end);
   }
 
   // ── camera grid ───────────────────────────────────────────
@@ -681,6 +758,7 @@ class FrigateModernHassCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `<style>${STYLES}</style>
       <ha-card class="card ${this._config.theme==='light'?'theme-light':this._config.theme==='auto'?'theme-auto':''}" id="card">
+        ${this._config.debug ? `<div class="debug-badge">debug: on v${VERSION}</div>` : ''}
         <div class="layout" id="layout">
           <div class="col-left">
             <!-- feed: single stream or grid -->
@@ -746,7 +824,7 @@ class FrigateModernHassCard extends HTMLElement {
       </ha-card>`;
     this._domCache = {}; // invalidate DOM element cache after full re-render
     this.shadowRoot.addEventListener('click', e=>this._click(e));
-    this._wireScrub(); this._wireScroll(); this._applyBrowse();
+    this._wireScrub(); this._wireScroll(); this._wirePinchZoom(); this._applyBrowse();
     if (multiCam) this._renderCamSwitcher();
     this._applyCardStyle();
   }
@@ -891,6 +969,7 @@ class FrigateModernHassCard extends HTMLElement {
     const gridFs = e.target.closest('[data-grid-fs]');
     if (gridFs) { e.stopPropagation(); this._fullscreen(this.shadowRoot.querySelector('#cam-grid')); return; }
     const card = e.target.closest('[data-ev]'); if (card) {
+      if (this._config?.debug) console.log('[frigate-card] card tap, ev id:', card.dataset.ev, 'viewMode:', this._viewMode);
       if (this._viewMode === 'grid') {
         this._openInGridSlot(card.dataset.ev);
       } else {
@@ -920,7 +999,7 @@ class FrigateModernHassCard extends HTMLElement {
     return this._events;
   }
   // Play clip/snapshot inside the matching grid slot (stays in grid mode)
-  _openInGridSlot(id) {
+  async _openInGridSlot(id) {
     const ev = this._allDisplayEvents().find(e => e.id === id);
     if (!ev) return;
     const camIdx = this._config.cameras.findIndex(c => {
@@ -934,14 +1013,16 @@ class FrigateModernHassCard extends HTMLElement {
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
     const camName = cap((ev.camera||'').replace(/_/g,' '));
     if (isSnap) {
+      const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
       slot.innerHTML = `
-        <img src="${this._media(ev.id,'snapshot.jpg')}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
+        <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
         <div class="grid-label">${camName}</div>
         <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
     } else {
+      const url = await this._resolveClipUrl(ev.id);
       slot.innerHTML = `
-        <video src="${this._media(ev.id,'clip.mp4')}" controls autoplay playsinline muted
+        <video src="${url}" controls autoplay playsinline muted
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
         <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
@@ -950,7 +1031,9 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   _open(id) {
-    const ev=this._allDisplayEvents().find(e=>e.id===id); if(!ev) return;
+    const ev=this._allDisplayEvents().find(e=>e.id===id);
+    if (this._config?.debug) console.log('[frigate-card] _open', id, 'found:', !!ev, ev);
+    if(!ev) return;
     if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
   }
@@ -965,11 +1048,87 @@ class FrigateModernHassCard extends HTMLElement {
     this.shadowRoot.querySelector('#engine').style.display='block';
     this.shadowRoot.querySelector('#feed-top').style.display='none';
     this._renderStreamCtrl();
+    this._revokeClipBlob();
+  }
+  _revokeClipBlob() {
+    if (this._clipBlobUrl) { URL.revokeObjectURL(this._clipBlobUrl); this._clipBlobUrl = null; }
+  }
+  // Fetch the clip as a Blob and hand the <video> a blob: URL instead of the
+  // direct network URL. iOS' AVPlayer requires proper HTTP range-request support
+  // to start progressive MP4 playback; the Frigate/HA media proxy doesn't always
+  // provide that, so it fails there with MEDIA_ERR_SRC_NOT_SUPPORTED even though
+  // the exact same URL plays fine elsewhere. A blob: URL sidesteps range requests
+  // entirely — fine for short event clips, at the cost of no streaming start.
+  async _loadClipBlob(url) {
+    this._revokeClipBlob();
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      this._clipBlobUrl = URL.createObjectURL(blob);
+      return this._clipBlobUrl;
+    } catch (err) {
+      if (this._config?.debug) console.error('[frigate-card] blob fetch failed, falling back to direct URL:', err);
+      return url;
+    }
   }
   _media(id,file,dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl?'?download=true':''}`; }
-  _showClip(ev) { this._enter(); this._playing={id:ev.id}; this.shadowRoot.querySelector('#viewer').innerHTML=`<video src="${this._media(ev.id,'clip.mp4')}" controls autoplay playsinline></video>`; }
-  _showClipById(id) { if(!id) return; this._enter(); this._playing={id}; this.shadowRoot.querySelector('#viewer').innerHTML=`<video src="${this._media(id,'clip.mp4')}" controls autoplay playsinline></video>`; }
-  _showSnapshot(ev) { this._enter(); this._playing={id:ev.id}; this.shadowRoot.querySelector('#viewer').innerHTML=`<img class="snap" src="${this._media(ev.id,'snapshot.jpg')}">`; }
+  // Same HLS route the Home Assistant media browser uses to play this event
+  // (custom_components/frigate/media_source.py: vod/event/<id>/index.m3u8).
+  _vod(id) { return `/api/frigate/${this._cc().clientId}/vod/event/${id}/index.m3u8`; }
+  // Safari/iOS support HLS natively in <video> (no library needed); other
+  // browsers don't, but the blob-mp4 path already works fine for them there.
+  _hlsNative() {
+    const v = document.createElement('video');
+    return !!v.canPlayType && v.canPlayType('application/vnd.apple.mpegurl') !== '';
+  }
+  async _resolveClipUrl(id) {
+    if (this._hlsNative()) return this._signed(this._vod(id));
+    return this._loadClipBlob(await this._signed(this._media(id,'clip.mp4')));
+  }
+  // Debug-only: wire up load/error/play diagnostics on a just-inserted <video> so
+  // the real MediaError (network vs. unsupported source vs. decode) shows in Eruda.
+  _debugWireVideo(url) {
+    if (!this._config?.debug) return;
+    const vid = this.shadowRoot.querySelector('#viewer video');
+    if (!vid) { console.log('[frigate-card] debug: no <video> found in #viewer after insert'); return; }
+    console.log('[frigate-card] video src set:', url);
+    vid.addEventListener('loadedmetadata', () => console.log('[frigate-card] video loadedmetadata, duration=', vid.duration));
+    vid.addEventListener('canplay', () => console.log('[frigate-card] video canplay'));
+    vid.addEventListener('playing', () => console.log('[frigate-card] video playing'));
+    vid.addEventListener('stalled', () => console.log('[frigate-card] video stalled'));
+    vid.addEventListener('error', () => {
+      const err = vid.error;
+      console.error('[frigate-card] video error code=', err?.code, 'message=', err?.message, 'networkState=', vid.networkState, 'readyState=', vid.readyState);
+    });
+    vid.play().catch(err => console.error('[frigate-card] video.play() rejected:', err?.name, err?.message));
+  }
+  async _showClip(ev) {
+    const token = ++this._playSeq;
+    this._enter(); this._playing={id:ev.id};
+    const viewer = this.shadowRoot.querySelector('#viewer');
+    viewer.innerHTML = '<div class="ld">Loading…</div>';
+    const playUrl = await this._resolveClipUrl(ev.id);
+    if (this._playSeq !== token) return;
+    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    this._debugWireVideo(playUrl);
+  }
+  async _showClipById(id) {
+    if(!id) return;
+    const token = ++this._playSeq;
+    this._enter(); this._playing={id};
+    const viewer = this.shadowRoot.querySelector('#viewer');
+    viewer.innerHTML = '<div class="ld">Loading…</div>';
+    const playUrl = await this._resolveClipUrl(id);
+    if (this._playSeq !== token) return;
+    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    this._debugWireVideo(playUrl);
+  }
+  async _showSnapshot(ev) {
+    this._enter(); this._playing={id:ev.id};
+    const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
+    this.shadowRoot.querySelector('#viewer').innerHTML=`<img class="snap" src="${url}">`;
+  }
   _fmtDurS(s) { // format seconds → m:ss or h:mm:ss
     const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
     return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${m}:${String(ss).padStart(2,'0')}`;
@@ -991,10 +1150,11 @@ class FrigateModernHassCard extends HTMLElement {
       : '';
     // No native `controls` — we show our own bar so the browser can't display
     // the wrong file duration (Frigate proxy may serve the full segment file).
-    viewer.innerHTML=`<video src="${url}" autoplay playsinline></video>${fromLbl}
+    viewer.innerHTML=`<video src="${url}" autoplay muted playsinline></video>${fromLbl}
       <div class="rec-dl-bar">
         <div class="rec-ctl-row">
           <button class="rec-pp-btn">⏸</button>
+          <button class="rec-mute-btn" title="Unmute">${ICONS.volOff}</button>
           <span class="rec-ctl-time">0:00 / ${this._fmtDurS(clipDur)}</span>
           <input type="range" class="rec-prog" min="0" max="${clipDur}" value="0" step="1">
         </div>
@@ -1003,12 +1163,13 @@ class FrigateModernHassCard extends HTMLElement {
           <button class="rec-dl-btn">↓ Download</button>
         </div>
       </div>`;
-    const vid    = viewer.querySelector('video');
-    const ppBtn  = viewer.querySelector('.rec-pp-btn');
-    const ctTime = viewer.querySelector('.rec-ctl-time');
-    const prog   = viewer.querySelector('.rec-prog');
-    const dlTime = viewer.querySelector('.rec-dl-time');
-    const dlBtn  = viewer.querySelector('.rec-dl-btn');
+    const vid     = viewer.querySelector('video');
+    const ppBtn   = viewer.querySelector('.rec-pp-btn');
+    const muteBtn = viewer.querySelector('.rec-mute-btn');
+    const ctTime  = viewer.querySelector('.rec-ctl-time');
+    const prog    = viewer.querySelector('.rec-prog');
+    const dlTime  = viewer.querySelector('.rec-dl-time');
+    const dlBtn   = viewer.querySelector('.rec-dl-btn');
     if (vid) {
       vid.addEventListener('play',  () => { if (ppBtn) ppBtn.textContent = '⏸'; });
       vid.addEventListener('pause', () => { if (ppBtn) ppBtn.textContent = '▶'; });
@@ -1023,6 +1184,11 @@ class FrigateModernHassCard extends HTMLElement {
       });
     }
     if (ppBtn && vid) ppBtn.addEventListener('click', () => { vid.paused ? vid.play() : vid.pause(); });
+    if (muteBtn && vid) muteBtn.addEventListener('click', () => {
+      vid.muted = !vid.muted;
+      muteBtn.innerHTML = vid.muted ? ICONS.volOff : ICONS.volOn;
+      muteBtn.title = vid.muted ? 'Unmute' : 'Mute';
+    });
     if (prog && vid) {
       prog.addEventListener('mousedown', e => { e.stopPropagation(); prog._dragging = true; });
       prog.addEventListener('mouseup',   () => { prog._dragging = false; });
@@ -1073,8 +1239,48 @@ class FrigateModernHassCard extends HTMLElement {
     // Play from start immediately so user sees something while positioning the bar
     this._showRecording(rs, re);
   }
+  // Debug-only: injects an on-device devtools console (Eruda) so errors/network
+  // can be inspected directly on a phone, without Safari remote debugging / a Mac.
+  _loadEruda() {
+    if (window.eruda || window.__frigateErudaLoading) return;
+    window.__frigateErudaLoading = true;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+    s.onload = () => { try { window.eruda.init(); } catch(_) {} };
+    document.head.appendChild(s);
+  }
   async _signed(path) { try { const r=await this._hass.callWS({type:'auth/sign_path',path,expires:3600}); return r?.path||path; } catch(_) { return path; } }
-  _fullscreen(el) { if(!el) return; (el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el); }
+  // Recursively find a <video>, piercing open shadow roots (e.g. ha-camera-stream
+  // renders its <video> inside its own shadow DOM, invisible to plain querySelector).
+  _findVideo(root, depth) {
+    if (!root || depth > 6) return null;
+    if (root.tagName === 'VIDEO') return root;
+    const direct = root.querySelector?.('video');
+    if (direct) return direct;
+    const all = root.querySelectorAll ? root.querySelectorAll('*') : [];
+    for (const node of all) {
+      if (node.shadowRoot) {
+        const v = this._findVideo(node.shadowRoot, (depth||0) + 1);
+        if (v) return v;
+      }
+    }
+    return null;
+  }
+  _fullscreen(el) {
+    if (!el) return;
+    // iPhone Safari/WKWebView: Element.requestFullscreen may exist as a function
+    // but silently no-ops/rejects — document.fullscreenEnabled is the real signal.
+    // Only native fullscreen on the <video> element itself works there.
+    const fsEnabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    if (this._config?.debug) console.log('[frigate-card] _fullscreen, fsEnabled:', fsEnabled, 'target:', el);
+    if (!fsEnabled) {
+      const vid = this._findVideo(el, 0);
+      if (this._config?.debug) console.log('[frigate-card] _fullscreen fallback, video found:', !!vid);
+      if (vid && typeof vid.webkitEnterFullscreen === 'function') { vid.webkitEnterFullscreen(); return; }
+    }
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { const p = req.call(el); if (p?.catch) p.catch(err => { if (this._config?.debug) console.error('[frigate-card] requestFullscreen rejected:', err); }); }
+  }
   _goNow() { const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
   _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
@@ -1534,6 +1740,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
       </div>
 
+      <div class="section">
+        <span class="field-label">Advanced</span>
+        <label class="chk-lbl"><input type="checkbox" name="debug" id="debug" ${this._config?.debug===true?'checked':''}> Show debug badge (version overlay)</label>
+      </div>
+
     </div>`;
 
     this.querySelector('#add-cam')?.addEventListener('click', () => {
@@ -1585,6 +1796,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.default_view = dv;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
+    // debug badge
+    c.debug = this.querySelector('#debug')?.checked === true;
     // hidden tabs
     const hidden = [...this.querySelectorAll('[data-hide-tab]')]
       .filter(el => el.checked).map(el => el.dataset.hideTab);
