@@ -154,6 +154,21 @@ export class FrigateModernHassCard extends HTMLElement {
     slot.innerHTML = ''; slot.appendChild(s);
     this._engine = s;
     this._renderStreamCtrl();
+    this._applyContainFit(s);
+  }
+
+  // Portrait-oriented cameras were getting cropped top/bottom because the live
+  // view box is a fixed 16:9 area and the stream filled it edge-to-edge
+  // (effectively "cover"). Force the actual <video> — found by piercing into
+  // ha-camera-stream/ha-hls-player's shadow DOM — to "contain" instead, so the
+  // full frame is always visible (portrait sources get letterboxed left/right
+  // rather than cropped). The video isn't there synchronously after mount, so
+  // this retries for a few seconds while the stream component initializes.
+  _applyContainFit(hostEl, attempt) {
+    attempt = attempt || 0;
+    const vid = this._findVideo(hostEl, 0);
+    if (vid) { vid.style.objectFit = 'contain'; return; }
+    if (attempt < 15) setTimeout(() => this._applyContainFit(hostEl, attempt + 1), 200);
   }
 
   // Pinch-to-zoom + drag-to-pan on the live view (#engine). Deliberately not
@@ -248,6 +263,7 @@ export class FrigateModernHassCard extends HTMLElement {
           s.hass = this._hass; s.stateObj = stateObj; s.controls = false; s.muted = true;
           s.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
           slot.appendChild(s);
+          this._applyContainFit(s);
         }
         // label
         const lbl = document.createElement('div');
