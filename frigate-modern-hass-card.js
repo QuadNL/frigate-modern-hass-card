@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.0.3-beta.1';
+const VERSION = '1.0.3-beta.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -471,13 +471,26 @@ class FrigateModernHassCard extends HTMLElement {
   // (effectively "cover"). Force the actual <video> — found by piercing into
   // ha-camera-stream/ha-hls-player's shadow DOM — to "contain" instead, so the
   // full frame is always visible (portrait sources get letterboxed left/right
-  // rather than cropped). The video isn't there synchronously after mount, so
-  // this retries for a few seconds while the stream component initializes.
+  // rather than cropped). The video isn't there synchronously after mount —
+  // retry for up to ~15s while the stream initializes (slow/cold connections) —
+  // and some player internals replace their own <video> element on reconnect,
+  // so once found, keep re-asserting periodically for as long as the host
+  // stays mounted (self-clears once it's removed from the DOM).
   _applyContainFit(hostEl, attempt) {
     attempt = attempt || 0;
     const vid = this._findVideo(hostEl, 0);
-    if (vid) { vid.style.objectFit = 'contain'; return; }
-    if (attempt < 15) setTimeout(() => this._applyContainFit(hostEl, attempt + 1), 200);
+    if (vid) {
+      vid.style.objectFit = 'contain';
+      if (!hostEl._containFitInterval) {
+        hostEl._containFitInterval = setInterval(() => {
+          if (!hostEl.isConnected) { clearInterval(hostEl._containFitInterval); return; }
+          const v = this._findVideo(hostEl, 0);
+          if (v) v.style.objectFit = 'contain';
+        }, 2000);
+      }
+      return;
+    }
+    if (attempt < 75) setTimeout(() => this._applyContainFit(hostEl, attempt + 1), 200);
   }
 
   // Pinch-to-zoom + drag-to-pan on the live view (#engine). Deliberately not
