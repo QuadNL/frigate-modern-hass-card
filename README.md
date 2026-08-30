@@ -85,6 +85,7 @@ default_view: single     # or 'grid'
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
 | `stream_height` | number | — | Max stream height in vh |
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
+| `grid_layout` | string | `auto` | Named layout, see below. Sets the columns and tile sizes together |
 | `grid_columns` | string/number | `auto` | Grid columns: `auto`, or `1`–`6`. Use `1` to stack cameras vertically |
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
@@ -92,23 +93,41 @@ default_view: single     # or 'grid'
 
 ### Grid layout
 
-A camera can take up more than one tile, which is how you get a large camera with
-smaller ones around it rather than a uniform matrix:
+Easiest in the visual editor: **Grid layout** shows each arrangement as numbered
+tiles, so you can see what you are picking. The numbers say where each camera
+lands, following the order of the camera list, and choosing a layout sets both the
+column count and the tile sizes.
+
+In YAML the same thing is one line:
+
+```yaml
+grid_layout: 6-big   # one large camera with five smaller ones
+```
+
+| Layout | Arrangement |
+| --- | --- |
+| `auto` | Fits the number of cameras and the space available |
+| `2-row` / `2-col` | Two cameras, stacked or side by side |
+| `3-big` | One large plus two |
+| `4` / `9` / `16` | Equal tiles |
+| `6-big` | One large plus five |
+| `8-big` | One large plus seven |
+| `10-big` | Two large plus eight |
+
+Layouts scale down: on a phone the columns reduce and the large tiles shrink with
+them, so one configuration works on every screen.
+
+If none of them fit, build your own with `grid_columns` and a `span` per camera.
+`span` takes a number for a square or `{cols: 2, rows: 1}` for a wide tile:
 
 ```yaml
 grid_columns: 3
 cameras:
   - entity: camera.front_door
-    span: 2          # 2x2 tiles
+    span: 2
   - entity: camera.garden
   - entity: camera.shed
-  - entity: camera.drive
-  - entity: camera.back
 ```
-
-`span` accepts a number for a square, or `{cols: 2, rows: 1}` for a wide tile. A
-span wider than the grid is reduced to fit, so the same configuration still works
-when the column count drops on a phone.
 
 ## Low-latency live view with go2rtc
 

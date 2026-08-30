@@ -1,5 +1,5 @@
 // editor.js — FrigateModernHassCardEditor config panel
-import { DEFAULT_ROTATE_S } from './constants.js';
+import { DEFAULT_ROTATE_S, GRID_LAYOUTS, findLayout } from './constants.js';
 
 export class FrigateModernHassCardEditor extends HTMLElement {
   setConfig(c) { this._config=c; this._render(); }
@@ -39,9 +39,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
+        ${usingLayout ? `<span class="cnum" title="Position in the chosen layout">${i+1}</span>` : `
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
-        </select>
+        </select>`}
         ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
@@ -50,6 +51,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
     </label>`;
 
+    const layoutId = this._config?.grid_layout || 'auto';
+    const usingLayout = layoutId !== 'auto';
     const defaultView = this._config?.default_view || 'single';
     const rotateOnLoad = this._config?.rotate_on_load === true;
     const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
@@ -68,6 +71,16 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
       .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:#374151;}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+      .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3b82f6;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;font-weight:700;}
+      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
+      .lay{padding:6px 5px 5px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
+      .lay:hover{border-color:#93c5fd;}
+      .lay.sel{border-color:#3b82f6;background:rgba(59,130,246,.08);box-shadow:0 0 0 1px #3b82f6 inset;}
+      .lay-prev{width:100%;aspect-ratio:4/3;display:grid;gap:2px;grid-auto-flow:dense;grid-auto-rows:1fr;}
+      .lay-prev span{background:#cbd5e1;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#475569;font-weight:700;}
+      .lay.sel .lay-prev span{background:#bfdbfe;color:#1d4ed8;}
+      .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;text-align:center;border:1px dashed #cbd5e1;border-radius:4px;}
+      .lay-lbl{font-size:10px;color:#374151;text-align:center;line-height:1.2;}
     </style>
     <div class="ed-wrap">
       <div>
@@ -146,6 +159,12 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
+        <span class="field-label">Grid layout</span>
+        <div class="lay-grid">${GRID_LAYOUTS.map(l => this._layoutButton(l, layoutId)).join('')}</div>
+        <small style="color:#6b7280;font-size:11px">The numbers show which camera lands where: the first camera in the list above goes in tile 1, and so on. A layout sets both the columns and the tile sizes.</small>
+      </div>
+
+      <div class="section" ${usingLayout ? 'style="display:none"' : ''}>
         <span class="field-label">Grid columns</span>
         <div class="radio-row">
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="auto" ${(this._config?.grid_columns||'auto')==='auto'?'checked':''}> Automatic</label>
@@ -203,6 +222,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       const cur = this._getCams(); cur.splice(Number(e.currentTarget.dataset.removeCam), 1);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
     }));
+    this.querySelectorAll('[data-layout]').forEach(b => b.addEventListener('click', () => {
+      this._config = { ...this._config, grid_layout: b.dataset.layout };
+      this._render(); this._dispatch();
+    }));
     this.querySelectorAll('select,input').forEach(el => el.addEventListener('change', () => this._u()));
     // prevent click outside from closing select while user is choosing
     this.querySelectorAll('select').forEach(sel => sel.addEventListener('mousedown', e => e.stopPropagation()));
@@ -212,6 +235,25 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       const lbl    = this.querySelector(`#${key}_lbl`);
       if (picker && lbl) picker.addEventListener('input', () => { lbl.textContent = picker.value; });
     });
+  }
+
+  // Draw a layout as numbered cells. Seeing the shape is the point; a written
+  // span tells nobody what they will end up with.
+  _layoutButton(l, selected) {
+    const sel = l.id === selected ? ' sel' : '';
+    if (l.id === 'auto') {
+      return `<button type="button" class="lay${sel}" data-layout="auto">
+        <div class="lay-auto">fits the<br>camera count</div>
+        <div class="lay-lbl">${l.label}</div></button>`;
+    }
+    const cells = Array.from({ length: l.tiles }, (_, i) => {
+      const sp = l.spans[i];
+      const style = sp ? ` style="grid-column:span ${sp[0]};grid-row:span ${sp[1]}"` : '';
+      return `<span${style}>${i + 1}</span>`;
+    }).join('');
+    return `<button type="button" class="lay${sel}" data-layout="${l.id}">
+      <div class="lay-prev" style="grid-template-columns:repeat(${l.cols},1fr)">${cells}</div>
+      <div class="lay-lbl">${l.label}</div></button>`;
   }
 
   _getCams() {
@@ -256,6 +298,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
     c.events_collapsed = this.querySelector('#events_collapsed')?.checked === true;
+    if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';

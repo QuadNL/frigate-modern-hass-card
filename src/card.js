@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, CAM_COLORS, MIN_TILE_PX, normSpan, mkCamState, camDisplayName } from './constants.js';
+         labelColor, CAM_COLORS, MIN_TILE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -62,6 +62,9 @@ export class FrigateModernHassCard extends HTMLElement {
       // Home Assistant stream if it can't connect.
       // Start with the events panel slid away, for a camera-first dashboard.
       events_collapsed: config.events_collapsed === true,
+      // A named layout from GRID_LAYOUTS. It sets the column count and the tile
+      // sizes together, so it overrides grid_columns and any per-camera span.
+      grid_layout: findLayout(config.grid_layout) ? config.grid_layout : 'auto',
       // Grid columns: 'auto' works one out from the camera count, or pin a
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
@@ -504,7 +507,19 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── camera grid ───────────────────────────────────────────
   // Columns for the grid. 'auto' keeps tiles roughly square-ish as cameras are
   // added; a pinned number wins, and 1 gives a vertical stack.
+  // The 'auto' entry exists so the editor can show it as a choice; it means no
+  // layout, leaving the column count and any hand written spans alone.
+  _activeLayout() {
+    const id = this._config.grid_layout;
+    return id && id !== 'auto' ? findLayout(id) : null;
+  }
   _gridColumns(n) {
+    const layout = this._activeLayout();
+    if (layout?.cols) {
+      // Still bounded by width: a four column layout on a phone is unreadable.
+      const w = this._cardWidth || this.offsetWidth || 0;
+      return w ? Math.max(1, Math.min(layout.cols, Math.floor(w / MIN_TILE_PX))) : layout.cols;
+    }
     const cfg = this._config.grid_columns;
     if (cfg && cfg !== 'auto') return cfg;
     let cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
@@ -523,10 +538,12 @@ export class FrigateModernHassCard extends HTMLElement {
     // asymmetric layouts (one large with smaller ones around it). A span wider
     // than the grid is clamped, so the same config still works when the column
     // count drops on a phone.
-    const spans = this._config.cameras.map(c => ({
-      cols: Math.min(c.span?.cols || 1, cols),
-      rows: c.span?.rows || 1,
-    }));
+    const layout = this._activeLayout();
+    const spans = this._config.cameras.map((c, i) => {
+      const preset = layout?.spans?.[i];
+      const want = preset ? { cols: preset[0], rows: preset[1] } : (layout ? { cols: 1, rows: 1 } : c.span || { cols: 1, rows: 1 });
+      return { cols: Math.min(want.cols || 1, cols), rows: want.rows || 1 };
+    });
     const cells = spans.reduce((sum, sp) => sum + sp.cols * sp.rows, 0);
     const rows = Math.max(1, Math.ceil(cells / cols));
     const slots = cols * rows;       // leftover cells become placeholders

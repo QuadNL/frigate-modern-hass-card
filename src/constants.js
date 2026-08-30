@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0-dev.11';
+export const VERSION = '1.3.0-dev.12';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -50,6 +50,25 @@ export const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3
 export function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
 export const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// Predefined grid layouts. A layout is just a column count plus a size per
+// position, so it rides on the same span mechanism as a hand written config.
+// The editor draws each one as numbered cells, because "span: 2" tells nobody
+// what they are going to get.
+// spans: [cols, rows] per tile, in camera order. Cameras beyond the list are 1x1.
+export const GRID_LAYOUTS = [
+  { id: 'auto',  label: 'Automatic', tiles: 0, cols: 0, spans: [] },
+  { id: '2-row', label: '2 stacked', tiles: 2, cols: 1, spans: [] },
+  { id: '2-col', label: '2 side by side', tiles: 2, cols: 2, spans: [] },
+  { id: '3-big', label: '1 large + 2', tiles: 3, cols: 3, spans: [[2, 2]] },
+  { id: '4',     label: '4 equal', tiles: 4, cols: 2, spans: [] },
+  { id: '6-big', label: '1 large + 5', tiles: 6, cols: 3, spans: [[2, 2]] },
+  { id: '8-big', label: '1 large + 7', tiles: 8, cols: 4, spans: [[3, 3]] },
+  { id: '9',     label: '9 equal', tiles: 9, cols: 3, spans: [] },
+  { id: '10-big',label: '2 large + 8', tiles: 10, cols: 4, spans: [[2, 2], [2, 2]] },
+  { id: '16',    label: '16 equal', tiles: 16, cols: 4, spans: [] },
+];
+export function findLayout(id) { return GRID_LAYOUTS.find(l => l.id === id) || null; }
+
 // A camera's size in grid cells. Accepts a number (square, e.g. 2 for 2x2) or
 // {cols, rows}. Clamped so a typo cannot produce a grid nothing else fits in.
 export function normSpan(span) {

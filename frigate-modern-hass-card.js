@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.11';
+const VERSION = '1.3.0-dev.12';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -50,6 +50,25 @@ const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#e
 function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
 const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// Predefined grid layouts. A layout is just a column count plus a size per
+// position, so it rides on the same span mechanism as a hand written config.
+// The editor draws each one as numbered cells, because "span: 2" tells nobody
+// what they are going to get.
+// spans: [cols, rows] per tile, in camera order. Cameras beyond the list are 1x1.
+const GRID_LAYOUTS = [
+  { id: 'auto',  label: 'Automatic', tiles: 0, cols: 0, spans: [] },
+  { id: '2-row', label: '2 stacked', tiles: 2, cols: 1, spans: [] },
+  { id: '2-col', label: '2 side by side', tiles: 2, cols: 2, spans: [] },
+  { id: '3-big', label: '1 large + 2', tiles: 3, cols: 3, spans: [[2, 2]] },
+  { id: '4',     label: '4 equal', tiles: 4, cols: 2, spans: [] },
+  { id: '6-big', label: '1 large + 5', tiles: 6, cols: 3, spans: [[2, 2]] },
+  { id: '8-big', label: '1 large + 7', tiles: 8, cols: 4, spans: [[3, 3]] },
+  { id: '9',     label: '9 equal', tiles: 9, cols: 3, spans: [] },
+  { id: '10-big',label: '2 large + 8', tiles: 10, cols: 4, spans: [[2, 2], [2, 2]] },
+  { id: '16',    label: '16 equal', tiles: 16, cols: 4, spans: [] },
+];
+function findLayout(id) { return GRID_LAYOUTS.find(l => l.id === id) || null; }
+
 // A camera's size in grid cells. Accepts a number (square, e.g. 2 for 2x2) or
 // {cols, rows}. Clamped so a typo cannot produce a grid nothing else fits in.
 function normSpan(span) {
@@ -1117,6 +1136,9 @@ class FrigateModernHassCard extends HTMLElement {
       // Home Assistant stream if it can't connect.
       // Start with the events panel slid away, for a camera-first dashboard.
       events_collapsed: config.events_collapsed === true,
+      // A named layout from GRID_LAYOUTS. It sets the column count and the tile
+      // sizes together, so it overrides grid_columns and any per-camera span.
+      grid_layout: findLayout(config.grid_layout) ? config.grid_layout : 'auto',
       // Grid columns: 'auto' works one out from the camera count, or pin a
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
@@ -1559,7 +1581,19 @@ class FrigateModernHassCard extends HTMLElement {
   // ── camera grid ───────────────────────────────────────────
   // Columns for the grid. 'auto' keeps tiles roughly square-ish as cameras are
   // added; a pinned number wins, and 1 gives a vertical stack.
+  // The 'auto' entry exists so the editor can show it as a choice; it means no
+  // layout, leaving the column count and any hand written spans alone.
+  _activeLayout() {
+    const id = this._config.grid_layout;
+    return id && id !== 'auto' ? findLayout(id) : null;
+  }
   _gridColumns(n) {
+    const layout = this._activeLayout();
+    if (layout?.cols) {
+      // Still bounded by width: a four column layout on a phone is unreadable.
+      const w = this._cardWidth || this.offsetWidth || 0;
+      return w ? Math.max(1, Math.min(layout.cols, Math.floor(w / MIN_TILE_PX))) : layout.cols;
+    }
     const cfg = this._config.grid_columns;
     if (cfg && cfg !== 'auto') return cfg;
     let cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
@@ -1578,10 +1612,12 @@ class FrigateModernHassCard extends HTMLElement {
     // asymmetric layouts (one large with smaller ones around it). A span wider
     // than the grid is clamped, so the same config still works when the column
     // count drops on a phone.
-    const spans = this._config.cameras.map(c => ({
-      cols: Math.min(c.span?.cols || 1, cols),
-      rows: c.span?.rows || 1,
-    }));
+    const layout = this._activeLayout();
+    const spans = this._config.cameras.map((c, i) => {
+      const preset = layout?.spans?.[i];
+      const want = preset ? { cols: preset[0], rows: preset[1] } : (layout ? { cols: 1, rows: 1 } : c.span || { cols: 1, rows: 1 });
+      return { cols: Math.min(want.cols || 1, cols), rows: want.rows || 1 };
+    });
     const cells = spans.reduce((sum, sp) => sum + sp.cols * sp.rows, 0);
     const rows = Math.max(1, Math.ceil(cells / cols));
     const slots = cols * rows;       // leftover cells become placeholders
@@ -2793,9 +2829,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
+        ${usingLayout ? `<span class="cnum" title="Position in the chosen layout">${i+1}</span>` : `
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
-        </select>
+        </select>`}
         ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
@@ -2804,6 +2841,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
     </label>`;
 
+    const layoutId = this._config?.grid_layout || 'auto';
+    const usingLayout = layoutId !== 'auto';
     const defaultView = this._config?.default_view || 'single';
     const rotateOnLoad = this._config?.rotate_on_load === true;
     const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
@@ -2822,6 +2861,16 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
       .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:#374151;}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+      .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3b82f6;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;font-weight:700;}
+      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
+      .lay{padding:6px 5px 5px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
+      .lay:hover{border-color:#93c5fd;}
+      .lay.sel{border-color:#3b82f6;background:rgba(59,130,246,.08);box-shadow:0 0 0 1px #3b82f6 inset;}
+      .lay-prev{width:100%;aspect-ratio:4/3;display:grid;gap:2px;grid-auto-flow:dense;grid-auto-rows:1fr;}
+      .lay-prev span{background:#cbd5e1;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#475569;font-weight:700;}
+      .lay.sel .lay-prev span{background:#bfdbfe;color:#1d4ed8;}
+      .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;text-align:center;border:1px dashed #cbd5e1;border-radius:4px;}
+      .lay-lbl{font-size:10px;color:#374151;text-align:center;line-height:1.2;}
     </style>
     <div class="ed-wrap">
       <div>
@@ -2900,6 +2949,12 @@ class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
+        <span class="field-label">Grid layout</span>
+        <div class="lay-grid">${GRID_LAYOUTS.map(l => this._layoutButton(l, layoutId)).join('')}</div>
+        <small style="color:#6b7280;font-size:11px">The numbers show which camera lands where: the first camera in the list above goes in tile 1, and so on. A layout sets both the columns and the tile sizes.</small>
+      </div>
+
+      <div class="section" ${usingLayout ? 'style="display:none"' : ''}>
         <span class="field-label">Grid columns</span>
         <div class="radio-row">
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="auto" ${(this._config?.grid_columns||'auto')==='auto'?'checked':''}> Automatic</label>
@@ -2956,6 +3011,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
       const cur = this._getCams(); cur.splice(Number(e.currentTarget.dataset.removeCam), 1);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
     }));
+    this.querySelectorAll('[data-layout]').forEach(b => b.addEventListener('click', () => {
+      this._config = { ...this._config, grid_layout: b.dataset.layout };
+      this._render(); this._dispatch();
+    }));
     this.querySelectorAll('select,input').forEach(el => el.addEventListener('change', () => this._u()));
     // prevent click outside from closing select while user is choosing
     this.querySelectorAll('select').forEach(sel => sel.addEventListener('mousedown', e => e.stopPropagation()));
@@ -2965,6 +3024,25 @@ class FrigateModernHassCardEditor extends HTMLElement {
       const lbl    = this.querySelector(`#${key}_lbl`);
       if (picker && lbl) picker.addEventListener('input', () => { lbl.textContent = picker.value; });
     });
+  }
+
+  // Draw a layout as numbered cells. Seeing the shape is the point; a written
+  // span tells nobody what they will end up with.
+  _layoutButton(l, selected) {
+    const sel = l.id === selected ? ' sel' : '';
+    if (l.id === 'auto') {
+      return `<button type="button" class="lay${sel}" data-layout="auto">
+        <div class="lay-auto">fits the<br>camera count</div>
+        <div class="lay-lbl">${l.label}</div></button>`;
+    }
+    const cells = Array.from({ length: l.tiles }, (_, i) => {
+      const sp = l.spans[i];
+      const style = sp ? ` style="grid-column:span ${sp[0]};grid-row:span ${sp[1]}"` : '';
+      return `<span${style}>${i + 1}</span>`;
+    }).join('');
+    return `<button type="button" class="lay${sel}" data-layout="${l.id}">
+      <div class="lay-prev" style="grid-template-columns:repeat(${l.cols},1fr)">${cells}</div>
+      <div class="lay-lbl">${l.label}</div></button>`;
   }
 
   _getCams() {
@@ -3009,6 +3087,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
     c.events_collapsed = this.querySelector('#events_collapsed')?.checked === true;
+    if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
