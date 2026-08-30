@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.2.0-dev.7';
+const VERSION = '1.2.0-dev.8';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -1548,6 +1548,8 @@ class FrigateModernHassCard extends HTMLElement {
       const finish = v => { if (!done) { done = true; clearInterval(poll); resolve(v); } };
       player.video?.addEventListener('playing', () => finish(true), { once: true });
       player.video?.addEventListener('loadeddata', () => finish(true), { once: true });
+      // Detached mid-connect (tile now shows a clip): stop waiting.
+      if (!player.isConnected) finish(false);
       const started = Date.now();
       const poll = setInterval(() => {
         const elapsed = Date.now() - started;
@@ -1555,7 +1557,11 @@ class FrigateModernHassCard extends HTMLElement {
         if ((!open && elapsed > 4000) || elapsed > 15000) finish(false);
       }, 250);
     });
-    if (this._gridToken !== token || !slot.isConnected) return;
+    if (this._gridToken !== token || !slot.isConnected || !player.isConnected) {
+      this._stopGo2rtcPlayer(player);
+      this._gridPlayers = (this._gridPlayers || []).filter(x => x !== player);
+      return;
+    }
     if (ok) {
       slot.querySelector('.ph')?.remove();
       this._startGo2rtcWatchdog(player, giveUp);
@@ -1941,7 +1947,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('.rec-seek-wrap')) return;
     const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
     const restoreSlot = e.target.closest('[data-restore-slot]');
-    if (restoreSlot) { e.stopPropagation(); this._mountGrid(); return; }
+    if (restoreSlot) { e.stopPropagation(); this._restoreGridSlot(Number(restoreSlot.dataset.restoreSlot)); return; }
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
     const slotFs = e.target.closest('[data-slot-fs]');
     if (slotFs) { e.stopPropagation(); this._fullscreen(slotFs.closest('.grid-slot')); return; }
@@ -1974,6 +1980,28 @@ class FrigateModernHassCard extends HTMLElement {
     }
     return this._events;
   }
+  _stopSlotPlayer(slot) {
+    const p = slot?.querySelector('frigate-go2rtc-player');
+    if (!p) return;
+    this._stopGo2rtcPlayer(p);
+    this._gridPlayers = (this._gridPlayers || []).filter(x => x !== p);
+  }
+  // Put one tile back to its live stream. Rebuilding the whole grid would
+  // drop and reconnect every other camera as well.
+  _restoreGridSlot(idx) {
+    const grid = this.shadowRoot.querySelector('#cam-grid');
+    const slot = grid?.querySelectorAll('.grid-slot:not(.placeholder)')?.[idx];
+    const cam = this._config.cameras[idx];
+    if (!slot || !cam) { this._mountGrid(); return; }
+    this._stopSlotPlayer(slot);
+    slot.innerHTML = `<div class="grid-label">${cap(camDisplayName(cam))}</div>`;
+    if (this._config.live_provider === 'go2rtc') {
+      slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
+      this._mountGridGo2rtc(slot, cam.entity);
+    } else {
+      this._mountGridHaStream(slot, cam.entity);
+    }
+  }
   // Play clip/snapshot inside the matching grid slot (stays in grid mode)
   async _openInGridSlot(id) {
     const ev = this._allDisplayEvents().find(e => e.id === id);
@@ -1986,6 +2014,7 @@ class FrigateModernHassCard extends HTMLElement {
     const slot = slots?.[camIdx < 0 ? 0 : camIdx];
     if (!slot) { this._open(id); return; } // fallback to single view
 
+    this._stopSlotPlayer(slot); // don't leave the tile's stream running headless
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
     const camName = cap((ev.camera||'').replace(/_/g,' '));
     if (isSnap) {
@@ -2001,8 +2030,7 @@ class FrigateModernHassCard extends HTMLElement {
         <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
-        <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
+        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>`;
       this._playMedia(slot.querySelector('video'));
     }
   }
