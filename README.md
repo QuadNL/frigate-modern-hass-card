@@ -11,8 +11,8 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 
 ## Features
 
-- **Live stream** — HLS stream via `ha-camera-stream`, mute toggle, fullscreen with animation
-- **Multi-camera grid** — up to 4 cameras in a responsive 2×2 grid, each slot independently fullscreenable
+- **Live stream** — HLS stream with native player controls (play, mute, volume, fullscreen)
+- **Multi-camera grid** — up to 4 cameras in a responsive 2×2 grid; tap a camera to open it, or go fullscreen for a wall view
 - **Timeline** — visual recording + event timeline, click to seek, drag to pan
 - **Event tabs** — Clips · Snapshots · Recordings · Reviews · Kept (favourites)
 - **Recording viewer** — custom playback controls with correct clip duration, seek bar, download-from-position

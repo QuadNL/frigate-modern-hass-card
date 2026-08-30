@@ -25,7 +25,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._engine = null; this._unsub = null;
     this._rotateTimer = null; this._cardWidth = 0;
     this._playSeq = 0;
-    this._streamMuted = true; // start muted; user can toggle via our mute button
+    this._streamMuted = true; // initial live-view mute state; never changed after mount (see _mountEngine)
     this._showReviewed = false; // reviews: hide reviewed by default
     this._domCache = {}; // querySelector result cache — cleared on re-render
   }
@@ -145,11 +145,33 @@ export class FrigateModernHassCard extends HTMLElement {
     this._engine = null;
     const stateObj = this._hlsStateObj(entity);
     if (!stateObj) return;
-    const s = document.createElement('ha-camera-stream');
+    // Use Home Assistant's HLS player directly rather than <ha-camera-stream>.
+    // ha-camera-stream picks between HLS and WebRTC, and it picks WebRTC when
+    // asked to start muted — but ha-web-rtc-player permanently discards the
+    // incoming audio track on a muted connect, which left the native volume
+    // control greyed out with no way to ever get sound (#6). Going straight to
+    // HLS keeps the audio track, so the card can start muted *and* have a
+    // working volume control. Falls back to ha-camera-stream on frontends
+    // where ha-hls-player isn't registered.
+    const useHls = !!customElements.get('ha-hls-player');
+    const s = document.createElement(useHls ? 'ha-hls-player' : 'ha-camera-stream');
     s.hass = this._hass;
-    s.stateObj = stateObj;
-    s.controls = false; // we provide our own control bar
-    s.muted = this._streamMuted;
+    if (useHls) {
+      s.entityid = entity;
+      s.autoPlay = true;
+      s.playsInline = true;
+    } else {
+      s.stateObj = stateObj;
+    }
+    // Native player controls (mute/volume/fullscreen) instead of our own bar.
+    // Our own mute button toggled `muted` on the stream element, which is a Lit
+    // reactive property HA uses internally to pick between its HLS and WebRTC
+    // players — toggling it could swap the whole player mid-stream. That
+    // reactive tug-of-war caused the unreliable mute button (#6). Native
+    // controls write straight to the <video> DOM node, outside Lit's render
+    // cycle, so there is nothing left to fight over.
+    s.controls = true;
+    s.muted = true;
     s.style.cssText = 'width:100%;height:100%;display:block';
     slot.innerHTML = ''; slot.appendChild(s);
     this._engine = s;
@@ -253,36 +275,31 @@ export class FrigateModernHassCard extends HTMLElement {
         const lbl = document.createElement('div');
         lbl.className = 'grid-label'; lbl.textContent = name;
         slot.appendChild(lbl);
-        // click → set as active cam for the events list; stay in grid
-        // guard: buttons inside the slot handle their own action; don't also switch camera
+        // Click → open this camera in single view (_switchCamera switches the
+        // view mode itself). Leave wall-display fullscreen first, otherwise we
+        // would land on a single view stuck behind a fullscreened grid.
+        // Guard: buttons inside the slot handle their own action (a clip played
+        // in-slot renders its own close/fullscreen buttons); don't also switch.
         slot.addEventListener('click', ev => {
           if (ev.target.closest('.grid-fs-btn,.grid-close-btn,[data-restore-slot]')) return;
+          this._exitFullscreen();
           this._switchCamera(i); this._renderCamSwitcher();
         });
-        // per-slot fullscreen button (appears on hover)
-        const fsBtn = document.createElement('button');
-        fsBtn.className = 'grid-fs-btn'; fsBtn.title = 'Fullscreen';
-        fsBtn.innerHTML = ICONS.expand;
-        fsBtn.addEventListener('click', ev => { ev.stopPropagation(); this._fullscreen(slot); });
-        slot.appendChild(fsBtn);
       }
       grid.appendChild(slot);
     }
   }
 
   // ── custom stream controls ────────────────────────────────
+  // Single view uses the player's own native controls for mute and fullscreen.
+  // Grid slots can't (their streams are pointer-events:none so slot clicks
+  // still select the camera), so those keep the card's fullscreen button.
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    const muteBtn = !inGrid
-      ? `<button class="scb-btn" id="sc-mute" title="${this._streamMuted ? 'Unmute' : 'Mute'}">${this._streamMuted ? ICONS.volOff : ICONS.volOn}</button>`
+    bar.innerHTML = inGrid
+      ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`
       : '';
-    bar.innerHTML = `${muteBtn}<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`;
-  }
-  _toggleStreamMute() {
-    this._streamMuted = !this._streamMuted;
-    if (this._engine) this._engine.muted = this._streamMuted;
-    this._renderStreamCtrl();
   }
 
   // ── view mode ─────────────────────────────────────────────
@@ -614,7 +631,6 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#back')) return this._showLive();
-    if (e.target.closest('#sc-mute')) return this._toggleStreamMute();
     if (e.target.closest('#sc-fs')) {
       const target = this._viewMode === 'grid'
         ? this.shadowRoot.querySelector('#cam-grid')
@@ -652,9 +668,6 @@ export class FrigateModernHassCard extends HTMLElement {
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
     const slotFs = e.target.closest('[data-slot-fs]');
     if (slotFs) { e.stopPropagation(); this._fullscreen(slotFs.closest('.grid-slot')); return; }
-    // whole-grid fullscreen
-    const gridFs = e.target.closest('[data-grid-fs]');
-    if (gridFs) { e.stopPropagation(); this._fullscreen(this.shadowRoot.querySelector('#cam-grid')); return; }
     const card = e.target.closest('[data-ev]'); if (card) {
       if (this._viewMode === 'grid') {
         this._openInGridSlot(card.dataset.ev);
@@ -708,11 +721,12 @@ export class FrigateModernHassCard extends HTMLElement {
     } else {
       const url = await this._resolveClipUrl(ev.id);
       slot.innerHTML = `
-        <video src="${url}" controls autoplay playsinline muted
+        <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
         <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
+      this._playMedia(slot.querySelector('video'));
     }
   }
 
@@ -756,6 +770,22 @@ export class FrigateModernHassCard extends HTMLElement {
       return url;
     }
   }
+  // Clips and recordings are played deliberately, so they should be audible.
+  // Browsers may still refuse to start unmuted playback (autoplay policy — the
+  // user gesture can be lost across the awaits needed to resolve a signed URL,
+  // notably on iOS). In that case retry muted rather than not playing at all;
+  // the user can unmute from the native controls.
+  async _playMedia(vid) {
+    if (!vid?.play) return;
+    try {
+      await vid.play();
+    } catch (err) {
+      if (err?.name === 'NotAllowedError' && !vid.muted) {
+        vid.muted = true;
+        try { await vid.play(); } catch (_) { /* give up quietly */ }
+      }
+    }
+  }
   _media(id,file,dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl?'?download=true':''}`; }
   // Same HLS route the Home Assistant media browser uses to play this event
   // (custom_components/frigate/media_source.py: vod/event/<id>/index.m3u8).
@@ -777,7 +807,8 @@ export class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(ev.id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    this._playMedia(viewer.querySelector('video'));
   }
   async _showClipById(id) {
     if(!id) return;
@@ -787,7 +818,8 @@ export class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    this._playMedia(viewer.querySelector('video'));
   }
   async _showSnapshot(ev) {
     this._enter(); this._playing={id:ev.id};
@@ -815,11 +847,11 @@ export class FrigateModernHassCard extends HTMLElement {
       : '';
     // No native `controls` — we show our own bar so the browser can't display
     // the wrong file duration (Frigate proxy may serve the full segment file).
-    viewer.innerHTML=`<video src="${url}" autoplay muted playsinline></video>${fromLbl}
+    viewer.innerHTML=`<video src="${url}" playsinline></video>${fromLbl}
       <div class="rec-dl-bar">
         <div class="rec-ctl-row">
           <button class="rec-pp-btn">⏸</button>
-          <button class="rec-mute-btn" title="Unmute">${ICONS.volOff}</button>
+          <button class="rec-mute-btn" title="Mute">${ICONS.volOn}</button>
           <span class="rec-ctl-time">0:00 / ${this._fmtDurS(clipDur)}</span>
           <input type="range" class="rec-prog" min="0" max="${clipDur}" value="0" step="1">
         </div>
@@ -846,6 +878,16 @@ export class FrigateModernHassCard extends HTMLElement {
         if (dlTime) dlTime.textContent = this._time(start + t);
         // stop playback at clip end (file may be longer than the clip window)
         if (vid.currentTime >= clipDur) { vid.pause(); vid.currentTime = clipDur; }
+      });
+    }
+    if (vid) {
+      // Start playback and sync the custom mute button with what actually
+      // happened — playback may have fallen back to muted.
+      this._playMedia(vid).then(() => {
+        if (muteBtn) {
+          muteBtn.innerHTML = vid.muted ? ICONS.volOff : ICONS.volOn;
+          muteBtn.title = vid.muted ? 'Unmute' : 'Mute';
+        }
       });
     }
     if (ppBtn && vid) ppBtn.addEventListener('click', () => { vid.paused ? vid.play() : vid.pause(); });
@@ -921,8 +963,19 @@ export class FrigateModernHassCard extends HTMLElement {
     }
     return null;
   }
+  _exitFullscreen() {
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => {}); }
+  }
   _fullscreen(el) {
     if (!el) return;
+    // Toggle: a second press leaves fullscreen. Without this the button was a
+    // one-way trip and users had to reach for Escape.
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      this._exitFullscreen();
+      return;
+    }
     // iPhone Safari/WKWebView: Element.requestFullscreen may exist as a function
     // but silently no-ops/rejects — document.fullscreenEnabled is the real signal.
     // Only native fullscreen on the <video> element itself works there.
