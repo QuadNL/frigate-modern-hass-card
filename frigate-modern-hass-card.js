@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0-dev.4';
+const VERSION = '1.1.0-dev.5';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -485,6 +485,7 @@ class FrigateModernHassCard extends HTMLElement {
     slot.innerHTML = ''; slot.appendChild(s);
     this._engine = s;
     this._renderStreamCtrl();
+    this._suppressPlayerFullscreen(s);
   }
 
   // Pinch-to-zoom + drag-to-pan on the live view (#engine). Deliberately not
@@ -600,15 +601,24 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── custom stream controls ────────────────────────────────
-  // Single view uses the player's own native controls for mute and fullscreen.
-  // Grid slots can't (their streams are pointer-events:none so slot clicks
-  // still select the camera), so those keep the card's fullscreen button.
+  // Mute/volume come from the player's own native controls. Fullscreen stays a
+  // card button: it fullscreens the container rather than the bare <video>, so
+  // pinch-zoom (a CSS transform on #engine) keeps working inside fullscreen —
+  // the browser's own video fullscreen takes the element out of our container
+  // and the transform no longer applies. The player's fullscreen button is
+  // suppressed via controlsList so there is only ever one of them.
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
-    const inGrid = this._viewMode === 'grid';
-    bar.innerHTML = inGrid
-      ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`
-      : '';
+    bar.innerHTML = `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`;
+  }
+  // controlsList isn't a Lit-bound property, so a single application once the
+  // video exists is enough — no re-asserting needed.
+  _suppressPlayerFullscreen(host, attempt) {
+    attempt = attempt || 0;
+    if (this._engine !== host || !host.isConnected) return;
+    const vid = this._findVideo(host, 0);
+    if (vid) { try { vid.controlsList = 'nofullscreen'; } catch(_) {} return; }
+    if (attempt < 50) setTimeout(() => this._suppressPlayerFullscreen(host, attempt + 1), 200);
   }
 
   // ── view mode ─────────────────────────────────────────────
