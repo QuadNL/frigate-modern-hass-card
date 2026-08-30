@@ -11,16 +11,16 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 
 ## Features
 
-- **Live stream** — native player controls (play, mute, volume, fullscreen), with optional low-latency go2rtc streaming
-- **Multi-camera grid** — any number of cameras, with a configurable column count; tap a camera to open it, or go fullscreen for a wall view
-- **Timeline** — visual recording + event timeline, click to seek, drag to pan
-- **Event tabs** — Clips · Snapshots · Recordings · Reviews · Kept (favourites)
-- **Recording viewer** — custom playback controls with correct clip duration, seek bar, download-from-position
-- **Reviews** — alert/detection severity, mark-reviewed, hide-reviewed filter
-- **Clip download** — download any recording from your current seek position
-- **Responsive layout** — wide mode shows stream + events side-by-side
-- **Theming** — dark / light / auto, custom accent + background colour picker
-- **Auto-rotate** — configurable interval rotation across cameras
+- **Live stream**: native player controls (play, mute, volume, fullscreen), with optional low-latency go2rtc streaming
+- **Multi-camera grid**: any number of cameras, with a configurable column count; tap a camera to open it, or go fullscreen for a wall view
+- **Timeline**: visual recording + event timeline, click to seek, drag to pan
+- **Event tabs**: Clips · Snapshots · Recordings · Reviews · Kept (favourites)
+- **Recording viewer**: custom playback controls with correct clip duration, seek bar, download-from-position
+- **Reviews**: alert/detection severity, mark-reviewed, hide-reviewed filter
+- **Clip download**: download any recording from your current seek position
+- **Responsive layout**: wide mode shows stream + events side-by-side
+- **Theming**: dark / light / auto, custom accent + background colour picker
+- **Auto-rotate**: configurable interval rotation across cameras
 
 ## Installation via HACS
 
@@ -72,18 +72,18 @@ default_view: single     # or 'grid'
 ### All options
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `camera_entity` | string | — | Single camera entity (shorthand) |
-| `cameras` | list | — | List of `{entity, name, span}` objects. `span` makes a camera occupy several tiles |
-| `title` | string | — | Card title |
-| `subtitle` | string | — | Card subtitle |
+| `camera_entity` | string | none | Single camera entity (shorthand) |
+| `cameras` | list | none | List of `{entity, name, span}` objects. `span` makes a camera occupy several tiles |
+| `title` | string | none | Card title |
+| `subtitle` | string | none | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |
 | `theme` | string | `dark` | `dark`, `light`, `auto` |
-| `accent_color` | string | — | Custom accent colour (hex) |
-| `bg_color` | string | — | Custom background colour (hex) |
+| `accent_color` | string | none | Custom accent colour (hex) |
+| `bg_color` | string | none | Custom background colour (hex) |
 | `window_hours` | number | `24` | History window in hours |
 | `rotate_on_load` | boolean | `false` | Auto-rotate cameras on load |
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
-| `stream_height` | number | — | Max stream height in vh |
+| `stream_height` | number | none | Max stream height in vh |
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
 | `grid_layout` | string | `auto` | Named layout, see below. Sets the columns and tile sizes together |
 | `grid_columns` | string/number | `auto` | Grid columns: `auto`, or `1`–`6`. Use `1` to stack cameras vertically |
@@ -134,7 +134,7 @@ cameras:
 By default the live view uses Home Assistant's own stream, which buffers several
 seconds ahead. Frigate ships with go2rtc built in, and streaming through that
 instead cuts the delay to roughly a second and is noticeably lighter on the
-browser — which matters most in grid view, where every camera streams at once.
+browser, which matters most in grid view, where every camera streams at once.
 
 This is **opt-in**. To enable it, add one line to your card configuration:
 
@@ -149,7 +149,7 @@ Or in the visual editor: **Live view provider → go2rtc**.
 No extra setup is needed. The card reaches go2rtc through the Frigate
 integration's own proxy, so there is no separate URL or port to configure and it
 keeps working remotely and in the companion apps. If go2rtc can't be reached,
-the card falls back to the Home Assistant stream on its own — in grid view each
+the card falls back to the Home Assistant stream on its own. In grid view each
 camera falls back independently, so one problematic camera won't take the others
 down with it.
 

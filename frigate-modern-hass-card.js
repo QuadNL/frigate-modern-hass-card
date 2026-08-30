@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.14';
+const VERSION = '1.3.0';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2829,18 +2829,15 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // empty picker.
     const fitting = GRID_LAYOUTS.filter(l => l.id === 'auto' || l.tiles >= cams.length);
     const layoutChoices = fitting.length > 1 ? fitting : GRID_LAYOUTS;
-    // The tile number leads the row: you read "tile 1 shows this camera", which
-    // is the direction people think in. Arrows move a camera between tiles,
-    // since the list order is what decides position.
+    // The tile number leads the row, so you read "tile 1 shows this camera",
+    // which is the direction people think in. Picking a camera that already
+    // sits in another tile swaps the two, so choosing is also positioning and
+    // no separate reorder control is needed.
     const camRows = cams.map((c,i) => `
       <div class="cr" data-row="${i}">
         <span class="cnum" title="Tile ${i+1} in the grid">${i+1}</span>
-        <div class="cmv">
-          <button class="mv" data-move-cam="${i}" data-dir="-1" ${i===0?'disabled':''} title="Move up">&#9650;</button>
-          <button class="mv" data-move-cam="${i}" data-dir="1" ${i===cams.length-1?'disabled':''} title="Move down">&#9660;</button>
-        </div>
         <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
-          <option value="">— select camera —</option>
+          <option value="">Select camera</option>
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
@@ -2874,10 +2871,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
       .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:#374151;}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
-      .cmv{display:flex;flex-direction:column;gap:1px;flex-shrink:0;}
-      .mv{width:18px;height:12px;padding:0;line-height:1;font-size:8px;border:1px solid #d1d5db;background:#fff;color:#6b7280;border-radius:3px;cursor:pointer;}
-      .mv:hover:not(:disabled){border-color:#93c5fd;color:#3b82f6;}
-      .mv:disabled{opacity:.3;cursor:default;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3b82f6;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;font-weight:700;}
       .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
       .lay{padding:6px 5px 5px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
@@ -2897,6 +2890,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <button class="add-btn" id="add-cam">+ Add camera</button>
           <button class="add-btn" id="toggle-layout">Grid layout${usingLayout ? `: ${findLayout(layoutId)?.label || ''}` : ''}</button>
         </div>
+        ${cams.length > 1 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">The number is the tile the camera fills in the grid. Pick a camera that is already in another tile to swap the two.</small>' : ''}
         ${cams.length > 4 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
         <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
           <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
@@ -2990,7 +2984,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <span class="field-label">Live view provider</span>
         <div class="radio-row">
           <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
-          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc — low latency (experimental)</label>
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc, low latency (experimental)</label>
         </div>
         <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
         <div style="margin-top:8px">
@@ -3030,12 +3024,22 @@ class FrigateModernHassCardEditor extends HTMLElement {
     this.querySelector('#toggle-layout')?.addEventListener('click', () => {
       this._layoutOpen = !this._layoutOpen; this._render();
     });
-    this.querySelectorAll('[data-move-cam]').forEach(b => b.addEventListener('click', e2 => {
-      const from = Number(e2.currentTarget.dataset.moveCam);
-      const to = from + Number(e2.currentTarget.dataset.dir);
-      const cur = this._getCams();
-      if (to < 0 || to >= cur.length) return;
-      [cur[from], cur[to]] = [cur[to], cur[from]];
+    // Picking a camera that is already shown in another tile moves it here and
+    // sends whatever stood here back to the tile it came from. Without this you
+    // would end up with the same camera twice and no way to place it. Runs
+    // before the generic change handler so it can take over the update.
+    this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
+      const i = Number(ev.currentTarget.dataset.camEntity);
+      const picked = ev.currentTarget.value;
+      if (!picked) return;
+      const before = cams;
+      const j = before.findIndex((c, k) => k !== i && c.entity === picked);
+      if (j < 0) return; // not in use elsewhere, nothing to swap
+      ev.stopImmediatePropagation();
+      const cur = this._getCams(); // keeps the sizes, which belong to the tile
+      const nameOf = k => before[k]?.name || '';
+      cur[i] = { ...cur[i], entity: picked, name: nameOf(j) };
+      cur[j] = { ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) };
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
