@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0-dev.1';
+const VERSION = '1.1.0-dev.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -458,19 +458,48 @@ class FrigateModernHassCard extends HTMLElement {
     s.hass = this._hass;
     s.stateObj = stateObj;
     // Native player controls (mute/volume/fullscreen) instead of our own bar.
-    // `muted` is set ONCE here and never changed afterwards — it is a Lit
-    // reactive property that HA uses internally to pick between its HLS and
-    // WebRTC players, so toggling it could swap the whole player mid-stream
-    // (and WebRTC permanently drops the audio track if it connects muted).
-    // That reactive tug-of-war was the cause of the unreliable mute button
-    // (#6). Native controls write straight to the <video> DOM node, outside
-    // Lit's render cycle, so there is nothing left to fight over.
+    // Our own mute button toggled `muted` on this element, which is a Lit
+    // reactive property HA uses internally to pick between its HLS and WebRTC
+    // players — toggling it could swap the whole player mid-stream. That
+    // reactive tug-of-war caused the unreliable mute button (#6). Native
+    // controls write straight to the <video> DOM node, outside Lit's render
+    // cycle, so there is nothing left to fight over.
     s.controls = true;
-    s.muted = this._streamMuted;
+    // Connect UNMUTED on purpose, even though the user sees a muted player:
+    // ha-web-rtc-player permanently discards the incoming audio track when it
+    // connects muted (there is no way to get it back), and HA's stream picker
+    // only considers the audio-carrying HLS stream when not muted. Connecting
+    // muted is exactly why the volume control ends up greyed out. `muted` is
+    // set once here and never changed again; the visible muted state is
+    // applied to the <video> itself in _startMutedOnce().
+    s.muted = false;
     s.style.cssText = 'width:100%;height:100%;display:block';
     slot.innerHTML = ''; slot.appendChild(s);
     this._engine = s;
     this._renderStreamCtrl();
+    this._startMutedOnce(s);
+  }
+
+  // Apply the initial muted state to the real <video> (the host is deliberately
+  // left unmuted — see _mountEngine). Earlier attempts set this too early and
+  // lost a race: Lit commits `.muted=false` onto the video during its first
+  // render, silently undoing ours. So we keep re-applying until playback has
+  // actually started, then stop touching mute entirely and hand it to the user
+  // via the native controls. A muted play() is never blocked by autoplay
+  // policy, which also un-sticks the start that an unmuted autoplay refuses.
+  _startMutedOnce(host) {
+    const started = Date.now();
+    const tick = () => {
+      if (this._engine !== host || !host.isConnected) return; // superseded
+      const vid = this._findVideo(host, 0);
+      if (vid) {
+        if (!vid.paused && vid.readyState >= 3) return; // playing: hands off for good
+        vid.muted = true;
+        vid.play?.().catch(() => {});
+      }
+      if (Date.now() - started < 15000) setTimeout(tick, 200);
+    };
+    tick();
   }
 
   // Pinch-to-zoom + drag-to-pan on the live view (#engine). Deliberately not
