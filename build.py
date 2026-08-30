@@ -9,6 +9,7 @@ import re, os, sys
 MODULES = [
     'src/constants.js',
     'src/styles.js',
+    'src/go2rtc-player.js',
     'src/card.js',
     'src/editor.js',
     'src/index.js',
