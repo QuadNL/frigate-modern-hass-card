@@ -94,9 +94,13 @@ default_view: single     # or 'grid'
 ### Grid layout
 
 Easiest in the visual editor: **Grid layout** shows each arrangement as numbered
-tiles, so you can see what you are picking. The numbers say where each camera
-lands, following the order of the camera list, and choosing a layout sets both the
-column count and the tile sizes.
+tiles, so you can see what you are picking. Choosing a layout sets both the column
+count and the tile sizes. Layouts with fewer tiles than you have cameras are not
+offered.
+
+The number in front of each camera in the list is the tile it fills. To move a
+camera, pick it in the tile where you want it: if it was already somewhere else,
+the two cameras swap places.
 
 In YAML the same thing is one line:
 
@@ -127,6 +131,16 @@ cameras:
     span: 2
   - entity: camera.garden
   - entity: camera.shed
+```
+
+### Events panel
+
+On a wide screen the events list sits beside the cameras. The button next to the
+fullscreen control folds it away, which gives the cameras the full width. To start
+that way:
+
+```yaml
+events_collapsed: true
 ```
 
 ## Low-latency live view with go2rtc
