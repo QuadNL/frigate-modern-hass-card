@@ -451,7 +451,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const cols = this._gridColumns(n);
     const rows = Math.ceil(n / cols);
     const slots = cols * rows;       // remainder becomes placeholders
-    grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}`;
+    grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
     this._teardownGridGo2rtc();

@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.1';
+const VERSION = '1.3.0-dev.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -155,15 +155,22 @@ const STYLES = `
   .grid-label{position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
-  .card.grid-mode .cam-grid.multi-row { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
-  .card.grid-mode .cam-grid.multi-row .grid-slot { aspect-ratio:unset; min-height:0; }
+  .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
+  .card.grid-mode .cam-grid.multi-row:not(.stacked) .grid-slot { aspect-ratio:unset; min-height:0; }
+  /* Stacked: tiles keep their 16:9 box and the column simply gets taller.
+     Capping the height here would squash every tile, the same mistake as on
+     mobile. Honour an explicit stream_height, and scroll past it. */
+  .card.grid-mode .cam-grid.stacked { max-height:var(--stream-h,none); overflow-y:auto; }
   /* Single stream: optional height cap */
   #eng-wrap { max-height:var(--stream-h,none); }
-  /* Mobile: keep a multi-row grid about as tall as a single stream would be.
-     A single column is left alone — that is the stacked layout, and squashing
-     it defeats the point. */
-  .card.mobile .cam-grid.multi-row { max-height:56.25vw; }
-  .card.mobile .cam-grid.multi-row .grid-slot { aspect-ratio:unset; min-height:0; }
+  /* Mobile: keep the grid about as tall as its tiles actually need. Each tile
+     is one column wide, so 16:9 makes a row 56.25vw/cols tall. A stacked
+     (single-column) grid is exempt: capping it squashes every tile to a sliver,
+     which is the opposite of what stacking is for, and it is meant to scroll. */
+  .card.mobile .cam-grid.multi-row:not(.stacked) {
+    max-height:calc(56.25vw * var(--grid-rows,2) / var(--grid-cols,2));
+  }
+  .card.mobile .cam-grid.multi-row:not(.stacked) .grid-slot { aspect-ratio:unset; min-height:0; }
 
   /* ── info row ── */
   .info-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:10px 16px 8px;border-bottom:1px solid var(--c-border);}
@@ -1464,7 +1471,7 @@ class FrigateModernHassCard extends HTMLElement {
     const cols = this._gridColumns(n);
     const rows = Math.ceil(n / cols);
     const slots = cols * rows;       // remainder becomes placeholders
-    grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}`;
+    grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
     this._teardownGridGo2rtc();
