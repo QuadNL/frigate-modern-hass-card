@@ -61,10 +61,14 @@ export class FrigateModernHassCard extends HTMLElement {
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
-      // Which go2rtc transports to try. 'auto' lets the player pick (it prefers
-      // WebRTC); 'mse' forces everything through the WebSocket, which is the
-      // only path that is guaranteed to work through HA's proxy and remotely.
-      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'auto',
+      // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
+      // travel through Home Assistant's proxy — it connects straight to
+      // go2rtc's own port, which generally only resolves on the local network,
+      // so remotely and in the companion apps it just hangs in CONNECTING
+      // forever while MSE quietly carries the stream anyway. 'webrtc' is there
+      // for local setups that want the lowest possible latency; 'auto' leaves
+      // the choice to the player (it tries WebRTC first).
+      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
