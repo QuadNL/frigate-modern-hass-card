@@ -17,6 +17,35 @@ MODULES = [
 
 OUTPUT = 'frigate-modern-hass-card.js'
 
+# Methods available on the element itself without being declared in src/.
+INHERITED = {
+    'appendChild', 'attachShadow', 'querySelector', 'querySelectorAll', 'remove',
+    'addEventListener', 'removeEventListener', 'getAttribute', 'setAttribute',
+    'dispatchEvent', 'getBoundingClientRect', 'insertAdjacentHTML',
+    'insertAdjacentElement', 'contains', 'closest', 'requestFullscreen',
+}
+
+
+def check_methods(source):
+    """Catch calls to this.something() that nothing defines.
+
+    A syntax check can't see these — the bundle parses fine and then explodes at
+    runtime. Removing a block of code and taking a helper with it is exactly how
+    that happens.
+    """
+    # 2 spaces in our modules, 4 in the vendored go2rtc player.
+    defined = set(re.findall(r'^\s{2,8}(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(', source, re.MULTILINE))
+    defined |= set(re.findall(r'^\s{2,8}(?:static\s+)?(?:get|set)\s+([A-Za-z_$][\w$]*)', source, re.MULTILINE))
+    # Properties that hold a function count as defined too (e.g. this.ondata).
+    defined |= set(re.findall(r'this\.([A-Za-z_$][\w$]*)\s*=', source))
+    called = set(re.findall(r'this\.([A-Za-z_$][\w$]*)\s*\(', source))
+    missing = sorted(called - defined - INHERITED)
+    if missing:
+        print('ERROR: called but never defined: ' + ', '.join('this.%s()' % m for m in missing))
+        sys.exit(1)
+
+
+
 def bundle():
     parts = []
     for path in MODULES:
@@ -41,6 +70,8 @@ def bundle():
         parts.append(content.strip())
 
     joined = '\n\n'.join(parts) + '\n'
+
+    check_methods(joined)
 
     with open(OUTPUT, 'w', encoding='utf-8') as f:
         f.write(joined)
