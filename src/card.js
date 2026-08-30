@@ -577,7 +577,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const fs = inGrid ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
-    const events = `<button class="scb-btn" id="sc-events" title="Show or hide events">${ICONS.chevron}</button>`;
+    const events = `<button class="scb-btn" id="sc-events"></button>`;
     bar.innerHTML = `${fs}${events}`;
     this._applyEventsCollapsed();
   }
@@ -585,7 +585,10 @@ export class FrigateModernHassCard extends HTMLElement {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
     card.classList.toggle('events-collapsed', this._eventsCollapsed);
     const btn = this.shadowRoot.querySelector('#sc-events');
-    if (btn) btn.title = this._eventsCollapsed ? 'Show events' : 'Hide events';
+    if (btn) {
+      btn.innerHTML = this._eventsCollapsed ? ICONS.panelOff : ICONS.panelOn;
+      btn.title = this._eventsCollapsed ? 'Show events panel' : 'Hide events panel';
+    }
   }
   _toggleEvents() {
     this._eventsCollapsed = !this._eventsCollapsed;

@@ -51,8 +51,7 @@ export const STYLES = `
   .card.wide.events-collapsed .col-right{width:0;opacity:0;overflow:hidden;border-left-color:transparent;}
   /* Narrow layouts already have the browse toggle for this. */
   .card:not(.wide) #sc-events{display:none;}
-  #sc-events svg{transition:transform .28s ease;transform:rotate(90deg);}
-  .card.events-collapsed #sc-events svg{transform:rotate(-90deg);}
+  .card.events-collapsed #sc-events{color:var(--c-text3);}
   /* Cap stream height so a full-width section doesn't produce an 800px stream.
      User can override via stream_height config. */
   .card.wide #eng-wrap{max-height:var(--stream-h,55vh);}
