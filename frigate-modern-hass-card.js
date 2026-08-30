@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.2.0-dev.3';
+const VERSION = '1.2.0-dev.4';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -1074,6 +1074,10 @@ class FrigateModernHassCard extends HTMLElement {
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
+      // Which go2rtc transports to try. 'auto' lets the player pick (it prefers
+      // WebRTC); 'mse' forces everything through the WebSocket, which is the
+      // only path that is guaranteed to work through HA's proxy and remotely.
+      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'auto',
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
@@ -1222,6 +1226,12 @@ class FrigateModernHassCard extends HTMLElement {
       player.video.muted = true;
       player.video.style.objectFit = 'contain';
     }
+    // WebRTC media does not travel through HA's proxy — it goes straight to
+    // go2rtc's own port, which typically only resolves on the local network.
+    // 'mse' keeps everything on the (proxied) WebSocket instead.
+    if (this._config.go2rtc_mode === 'webrtc') player.mode = 'webrtc';
+    else if (this._config.go2rtc_mode === 'mse') player.mode = 'mse';
+    this._wireGo2rtcDiagnostics(player);
     player.src = src;
     this._go2rtcPlayer = player;
     this._engine = player;
@@ -1252,6 +1262,22 @@ class FrigateModernHassCard extends HTMLElement {
     if (result.ok) return result;
     this._teardownGo2rtc();
     return result;
+  }
+  // Temporary: logs how the go2rtc connection behaves over time (which
+  // transport won, and when it drops). Transitions only, so it stays quiet.
+  _wireGo2rtcDiagnostics(player) {
+    const name = s => ({ 0:'CONNECTING', 1:'OPEN', 2:'CLOSING', 3:'CLOSED' })[s] ?? s;
+    const log = (...a) => console.log('[frigate-card go2rtc]', ...a);
+    let last = '';
+    const timer = setInterval(() => {
+      if (!player.isConnected) { clearInterval(timer); return; }
+      const now = `ws=${name(player.wsState)} pc=${name(player.pcState)} codecs=${player.mseCodecs || '-'}`;
+      if (now !== last) { last = now; log(now); }
+    }, 500);
+    const v = player.video;
+    if (!v) return;
+    ['playing','pause','waiting','stalled','ended','emptied','error'].forEach(ev =>
+      v.addEventListener(ev, () => log('video:', ev, v.error ? `code=${v.error.code}` : '')));
   }
   _teardownGo2rtc() {
     const p = this._go2rtcPlayer;
@@ -2561,6 +2587,15 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc — low latency (experimental)</label>
         </div>
         <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+        <div style="margin-top:8px">
+          <span class="field-label">go2rtc transport</span>
+          <div class="radio-row">
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${(this._config?.go2rtc_mode||'auto')==='auto'?'checked':''}> Automatic</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="mse" ${this._config?.go2rtc_mode==='mse'?'checked':''}> MSE only</label>
+          </div>
+          <small style="color:#6b7280;font-size:11px">WebRTC has the lowest latency but connects directly to go2rtc, which usually only works on the local network. MSE runs entirely over the proxied connection, so it also works remotely.</small>
+        </div>
       </div>
 
       <div class="section">
@@ -2634,6 +2669,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
+    c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'auto';
     this._config=c; this._dispatch();
   }
   _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }

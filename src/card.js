@@ -61,6 +61,10 @@ export class FrigateModernHassCard extends HTMLElement {
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
+      // Which go2rtc transports to try. 'auto' lets the player pick (it prefers
+      // WebRTC); 'mse' forces everything through the WebSocket, which is the
+      // only path that is guaranteed to work through HA's proxy and remotely.
+      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'auto',
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
@@ -209,6 +213,12 @@ export class FrigateModernHassCard extends HTMLElement {
       player.video.muted = true;
       player.video.style.objectFit = 'contain';
     }
+    // WebRTC media does not travel through HA's proxy — it goes straight to
+    // go2rtc's own port, which typically only resolves on the local network.
+    // 'mse' keeps everything on the (proxied) WebSocket instead.
+    if (this._config.go2rtc_mode === 'webrtc') player.mode = 'webrtc';
+    else if (this._config.go2rtc_mode === 'mse') player.mode = 'mse';
+    this._wireGo2rtcDiagnostics(player);
     player.src = src;
     this._go2rtcPlayer = player;
     this._engine = player;
@@ -239,6 +249,22 @@ export class FrigateModernHassCard extends HTMLElement {
     if (result.ok) return result;
     this._teardownGo2rtc();
     return result;
+  }
+  // Temporary: logs how the go2rtc connection behaves over time (which
+  // transport won, and when it drops). Transitions only, so it stays quiet.
+  _wireGo2rtcDiagnostics(player) {
+    const name = s => ({ 0:'CONNECTING', 1:'OPEN', 2:'CLOSING', 3:'CLOSED' })[s] ?? s;
+    const log = (...a) => console.log('[frigate-card go2rtc]', ...a);
+    let last = '';
+    const timer = setInterval(() => {
+      if (!player.isConnected) { clearInterval(timer); return; }
+      const now = `ws=${name(player.wsState)} pc=${name(player.pcState)} codecs=${player.mseCodecs || '-'}`;
+      if (now !== last) { last = now; log(now); }
+    }, 500);
+    const v = player.video;
+    if (!v) return;
+    ['playing','pause','waiting','stalled','ended','emptied','error'].forEach(ev =>
+      v.addEventListener(ev, () => log('video:', ev, v.error ? `code=${v.error.code}` : '')));
   }
   _teardownGo2rtc() {
     const p = this._go2rtcPlayer;
