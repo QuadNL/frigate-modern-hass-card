@@ -162,11 +162,56 @@ export class FrigateModernHassCard extends HTMLElement {
     return { ...raw, attributes: attrs };
   }
 
+  // Switching cameras used to blank the picture to a spinner, which reads as
+  // something breaking rather than something changing. Keep the last frame on
+  // screen instead and fade the new stream in over it. A canvas copy costs
+  // nothing and avoids holding two streams open at once.
+  _captureFrame() {
+    try {
+      const vid = this._engine ? this._findVideo(this._engine, 0) : null;
+      if (!vid?.videoWidth) return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = vid.videoWidth;
+      canvas.height = vid.videoHeight;
+      canvas.getContext('2d').drawImage(vid, 0, 0);
+      return canvas.toDataURL('image/jpeg', 0.7);
+    } catch (_) {
+      return null; // tainted canvas or no frame yet; fall back to the spinner
+    }
+  }
+  _holdFrame(slot, frame) {
+    if (!frame) return;
+    const hold = document.createElement('div');
+    hold.className = 'engine-hold';
+    hold.style.backgroundImage = `url(${frame})`;
+    slot.insertAdjacentElement('afterbegin', hold);
+  }
+  // Reveal the player once it actually has picture, then drop the held frame.
+  // The timeout is a safety net: without it a stream that never reports playing
+  // would stay invisible behind a still image.
+  _fadeInPlayer(slot, el) {
+    el.classList.add('engine-player');
+    let done = false;
+    const reveal = () => {
+      if (done) return;
+      done = true;
+      el.classList.add('shown');
+      setTimeout(() => slot.querySelector('.engine-hold')?.remove(), 320);
+    };
+    const vid = this._findVideo(el, 0);
+    if (vid) {
+      vid.addEventListener('playing', reveal, { once: true });
+      vid.addEventListener('loadeddata', reveal, { once: true });
+    }
+    setTimeout(reveal, 4000);
+  }
   async _mountEngine() {
     const slot = this.shadowRoot.querySelector('#engine'); if (!slot) return;
     const entity = this._activeCam?.entity; if (!entity) return;
+    const frame = this._captureFrame(); // before anything is torn down
     const spinner = '<div class="ph"><div class="ph-spin"></div></div>';
-    slot.innerHTML = spinner;
+    slot.innerHTML = frame ? '' : spinner;
+    this._holdFrame(slot, frame);
     this._engine = null;
     this._teardownGo2rtc();
     this._engineSeq = (this._engineSeq || 0) + 1;
@@ -177,7 +222,8 @@ export class FrigateModernHassCard extends HTMLElement {
     if (this._config.live_provider === 'go2rtc') {
       const ok = await this._mountGo2rtc(slot, token);
       if (ok || this._engineSeq !== token) return;
-      slot.innerHTML = spinner; // go2rtc didn't start — fall through to HLS
+      slot.innerHTML = frame ? '' : spinner; // go2rtc did not start, fall through to HLS
+      this._holdFrame(slot, frame);
     }
     this._mountHaPlayer(slot, entity, stateObj);
   }
@@ -214,7 +260,8 @@ export class FrigateModernHassCard extends HTMLElement {
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block';
-    slot.innerHTML = ''; slot.appendChild(player); // creates its <video> synchronously
+    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.appendChild(player); // creates its <video> synchronously
     // Upstream's player starts unmuted and only mutes if autoplay is refused;
     // mute before connecting so the live view is never unexpectedly audible.
     if (player.video) {
@@ -228,6 +275,7 @@ export class FrigateModernHassCard extends HTMLElement {
     player.src = src;
     this._go2rtcPlayer = player;
     this._engine = player;
+    this._fadeInPlayer(slot, player);
     this._renderStreamCtrl();
 
     // Two separate questions, and conflating them was a bug: does this proxy
@@ -362,8 +410,10 @@ export class FrigateModernHassCard extends HTMLElement {
     s.controls = true;
     s.muted = true;
     s.style.cssText = 'width:100%;height:100%;display:block';
-    slot.innerHTML = ''; slot.appendChild(s);
+    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.appendChild(s);
     this._engine = s;
+    this._fadeInPlayer(slot, s);
     this._renderStreamCtrl();
   }
 
