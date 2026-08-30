@@ -7,9 +7,12 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0-dev.2';
+export const VERSION = '1.3.0-dev.3';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
+// Smallest tile width the automatic grid will produce, in px. Below this a
+// camera stops being watchable, so fewer columns are used instead.
+export const MIN_TILE_PX = 200;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {

@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, CAM_COLORS, mkCamState, camDisplayName } from './constants.js';
+         labelColor, CAM_COLORS, MIN_TILE_PX, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -440,10 +440,13 @@ export class FrigateModernHassCard extends HTMLElement {
   _gridColumns(n) {
     const cfg = this._config.grid_columns;
     if (cfg && cfg !== 'auto') return cfg;
-    if (n <= 1) return 1;
-    if (n <= 4) return 2;
-    if (n <= 9) return 3;
-    return 4;
+    let cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    // Never make tiles so narrow they stop being watchable. Without this a
+    // phone showing seven cameras got three columns of ~100px tiles; the count
+    // alone says nothing about how much room there actually is.
+    const width = this._cardWidth || this.offsetWidth || 0;
+    if (width) cols = Math.max(1, Math.min(cols, Math.floor(width / MIN_TILE_PX)));
+    return cols;
   }
   async _mountGrid() {
     const grid = this.shadowRoot.querySelector('#cam-grid'); if (!grid) return;
@@ -454,6 +457,7 @@ export class FrigateModernHassCard extends HTMLElement {
     grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
+    this._gridCols = cols;
     this._teardownGridGo2rtc();
     grid.innerHTML = '';
     this._gridSeq = (this._gridSeq || 0) + 1;
@@ -865,6 +869,14 @@ export class FrigateModernHassCard extends HTMLElement {
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
       if (wide) this._syncColHeight();
+      // Crossing a width where the automatic column count changes (rotating a
+      // phone, resizing a window) needs the grid rebuilt: the number of
+      // placeholder tiles depends on it. Only on an actual change, since this
+      // reconnects every stream.
+      if (this._viewMode === 'grid' && this._gridCols
+          && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
+        this._mountGrid();
+      }
     });
     this._ro.observe(this);
   }

@@ -7,9 +7,12 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.2';
+const VERSION = '1.3.0-dev.3';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
+// Smallest tile width the automatic grid will produce, in px. Below this a
+// camera stops being watchable, so fewer columns are used instead.
+const MIN_TILE_PX = 200;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -1460,10 +1463,13 @@ class FrigateModernHassCard extends HTMLElement {
   _gridColumns(n) {
     const cfg = this._config.grid_columns;
     if (cfg && cfg !== 'auto') return cfg;
-    if (n <= 1) return 1;
-    if (n <= 4) return 2;
-    if (n <= 9) return 3;
-    return 4;
+    let cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    // Never make tiles so narrow they stop being watchable. Without this a
+    // phone showing seven cameras got three columns of ~100px tiles; the count
+    // alone says nothing about how much room there actually is.
+    const width = this._cardWidth || this.offsetWidth || 0;
+    if (width) cols = Math.max(1, Math.min(cols, Math.floor(width / MIN_TILE_PX)));
+    return cols;
   }
   async _mountGrid() {
     const grid = this.shadowRoot.querySelector('#cam-grid'); if (!grid) return;
@@ -1474,6 +1480,7 @@ class FrigateModernHassCard extends HTMLElement {
     grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
+    this._gridCols = cols;
     this._teardownGridGo2rtc();
     grid.innerHTML = '';
     this._gridSeq = (this._gridSeq || 0) + 1;
@@ -1885,6 +1892,14 @@ class FrigateModernHassCard extends HTMLElement {
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
       if (wide) this._syncColHeight();
+      // Crossing a width where the automatic column count changes (rotating a
+      // phone, resizing a window) needs the grid rebuilt: the number of
+      // placeholder tiles depends on it. Only on an actual change, since this
+      // reconnects every stream.
+      if (this._viewMode === 'grid' && this._gridCols
+          && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
+        this._mountGrid();
+      }
     });
     this._ro.observe(this);
   }
