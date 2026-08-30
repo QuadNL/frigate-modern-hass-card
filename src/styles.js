@@ -58,7 +58,7 @@ export const STYLES = `
   #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
   #engine.zooming{transition:none;}
   #engine:not(.zooming){transition:transform .15s ease-out;}
-  #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
+  #engine ha-camera-stream,#engine ha-hls-player,#engine frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
   .viewer .ld{color:var(--c-text2);font-size:13px;}
@@ -84,7 +84,7 @@ export const STYLES = `
   .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
   .grid-slot.placeholder:hover{box-shadow:none;}
-  .grid-slot ha-camera-stream{width:100%;height:100%;display:block;}
+  .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .grid-close-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;}
   .grid-close-btn:hover{background:rgba(239,68,68,.7);}
   /* per-slot fullscreen button — appears on hover, bottom-right */

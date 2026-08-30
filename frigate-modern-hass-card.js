@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -108,7 +108,7 @@ const STYLES = `
   #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
   #engine.zooming{transition:none;}
   #engine:not(.zooming){transition:transform .15s ease-out;}
-  #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
+  #engine ha-camera-stream,#engine ha-hls-player,#engine frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
   .viewer .ld{color:var(--c-text2);font-size:13px;}
@@ -134,7 +134,7 @@ const STYLES = `
   .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
   .grid-slot.placeholder:hover{box-shadow:none;}
-  .grid-slot ha-camera-stream{width:100%;height:100%;display:block;}
+  .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .grid-close-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;}
   .grid-close-btn:hover{background:rgba(239,68,68,.7);}
   /* per-slot fullscreen button — appears on hover, bottom-right */
@@ -310,6 +310,710 @@ const STYLES = `
 
 // ── editor ───────────────────────────────────────────────────
 
+// go2rtc-player.js — vendored, unmodified go2rtc example player.
+// Source: https://github.com/AlexxIT/go2rtc/blob/master/www/video-rtc.js
+// Copyright (c) Alexey Khit — MIT License: https://github.com/AlexxIT/go2rtc/blob/master/LICENSE
+// Kept verbatim (aside from stripping the `export` keyword for bundling) so
+// upstream fixes/updates can be dropped in without re-deriving anything.
+
+/**
+ * VideoRTC v1.6.0 - Video player for go2rtc streaming application.
+ *
+ * All modern web technologies are supported in almost any browser except Apple Safari.
+ *
+ * Support:
+ * - ECMAScript 2017 (ES8) = ES6 + async
+ * - RTCPeerConnection for Safari iOS 11.0+
+ * - IntersectionObserver for Safari iOS 12.2+
+ * - ManagedMediaSource for Safari 17+
+ *
+ * Doesn't support:
+ * - MediaSource for Safari iOS
+ * - Customized built-in elements (extends HTMLVideoElement) because Safari
+ * - Autoplay for WebRTC in Safari
+ */
+class VideoRTC extends HTMLElement {
+    constructor() {
+        super();
+
+        this.DISCONNECT_TIMEOUT = 5000;
+        this.RECONNECT_TIMEOUT = 15000;
+
+        this.CODECS = [
+            'avc1.640029',      // H.264 high 4.1 (Chromecast 1st and 2nd Gen)
+            'avc1.64002A',      // H.264 high 4.2 (Chromecast 3rd Gen)
+            'avc1.640033',      // H.264 high 5.1 (Chromecast with Google TV)
+            'hvc1.1.6.L153.B0', // H.265 main 5.1 (Chromecast Ultra)
+            'mp4a.40.2',        // AAC LC
+            'mp4a.40.5',        // AAC HE
+            'flac',             // FLAC (PCM compatible)
+            'opus',             // OPUS Chrome, Firefox
+        ];
+
+        /**
+         * [config] Supported modes (webrtc, webrtc/tcp, mse, hls, mp4, mjpeg).
+         * @type {string}
+         */
+        this.mode = 'webrtc,mse,hls,mjpeg';
+
+        /**
+         * [Config] Requested medias (video, audio, microphone).
+         * @type {string}
+         */
+        this.media = 'video,audio';
+
+        /**
+         * [config] Run stream when not displayed on the screen. Default `false`.
+         * @type {boolean}
+         */
+        this.background = false;
+
+        /**
+         * [config] Run stream only when player in the viewport. Stop when user scroll out player.
+         * Value is percentage of visibility from `0` (not visible) to `1` (full visible).
+         * Default `0` - disable;
+         * @type {number}
+         */
+        this.visibilityThreshold = 0;
+
+        /**
+         * [config] Run stream only when browser page on the screen. Stop when user change browser
+         * tab or minimise browser windows.
+         * @type {boolean}
+         */
+        this.visibilityCheck = true;
+
+        /**
+         * [config] WebRTC configuration
+         * @type {RTCConfiguration}
+         */
+        this.pcConfig = {
+            bundlePolicy: 'max-bundle',
+            iceServers: [{urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302']}],
+            sdpSemantics: 'unified-plan',  // important for Chromecast 1
+        };
+
+        /**
+         * [info] WebSocket connection state. Values: CONNECTING, OPEN, CLOSED
+         * @type {number}
+         */
+        this.wsState = WebSocket.CLOSED;
+
+        /**
+         * [info] WebRTC connection state.
+         * @type {number}
+         */
+        this.pcState = WebSocket.CLOSED;
+
+        /**
+         * @type {HTMLVideoElement}
+         */
+        this.video = null;
+
+        /**
+         * @type {WebSocket}
+         */
+        this.ws = null;
+
+        /**
+         * @type {string|URL}
+         */
+        this.wsURL = '';
+
+        /**
+         * @type {RTCPeerConnection}
+         */
+        this.pc = null;
+
+        /**
+         * @type {number}
+         */
+        this.connectTS = 0;
+
+        /**
+         * @type {string}
+         */
+        this.mseCodecs = '';
+
+        /**
+         * [internal] Disconnect TimeoutID.
+         * @type {number}
+         */
+        this.disconnectTID = 0;
+
+        /**
+         * [internal] Reconnect TimeoutID.
+         * @type {number}
+         */
+        this.reconnectTID = 0;
+
+        /**
+         * [internal] Handler for receiving Binary from WebSocket.
+         * @type {Function}
+         */
+        this.ondata = null;
+
+        /**
+         * [internal] Handlers list for receiving JSON from WebSocket.
+         * @type {Object.<string,Function>}
+         */
+        this.onmessage = null;
+    }
+
+    /**
+     * Set video source (WebSocket URL). Support relative path.
+     * @param {string|URL} value
+     */
+    set src(value) {
+        if (typeof value !== 'string') value = value.toString();
+        if (value.startsWith('http')) {
+            value = 'ws' + value.substring(4);
+        } else if (value.startsWith('/')) {
+            value = 'ws' + location.origin.substring(4) + value;
+        }
+
+        this.wsURL = value;
+
+        this.onconnect();
+    }
+
+    /**
+     * Play video. Support automute when autoplay blocked.
+     * https://developer.chrome.com/blog/autoplay/
+     */
+    play() {
+        this.video.play().catch(() => {
+            if (!this.video.muted) {
+                this.video.muted = true;
+                this.video.play().catch(er => {
+                    console.warn(er);
+                });
+            }
+        });
+    }
+
+    /**
+     * Send message to server via WebSocket
+     * @param {Object} value
+     */
+    send(value) {
+        if (this.ws) this.ws.send(JSON.stringify(value));
+    }
+
+    /** @param {Function} isSupported */
+    codecs(isSupported) {
+        return this.CODECS
+            .filter(codec => this.media.includes(codec.includes('vc1') ? 'video' : 'audio'))
+            .filter(codec => isSupported(`video/mp4; codecs="${codec}"`)).join();
+    }
+
+    /**
+     * `CustomElement`. Invoked each time the custom element is appended into a
+     * document-connected element.
+     */
+    connectedCallback() {
+        if (this.disconnectTID) {
+            clearTimeout(this.disconnectTID);
+            this.disconnectTID = 0;
+        }
+
+        // because video autopause on disconnected from DOM
+        if (this.video) {
+            const seek = this.video.seekable;
+            if (seek.length > 0) {
+                this.video.currentTime = seek.end(seek.length - 1);
+            }
+            this.play();
+        } else {
+            this.oninit();
+        }
+
+        this.onconnect();
+    }
+
+    /**
+     * `CustomElement`. Invoked each time the custom element is disconnected from the
+     * document's DOM.
+     */
+    disconnectedCallback() {
+        if (this.background || this.disconnectTID) return;
+        if (this.wsState === WebSocket.CLOSED && this.pcState === WebSocket.CLOSED) return;
+
+        this.disconnectTID = setTimeout(() => {
+            if (this.reconnectTID) {
+                clearTimeout(this.reconnectTID);
+                this.reconnectTID = 0;
+            }
+
+            this.disconnectTID = 0;
+
+            this.ondisconnect();
+        }, this.DISCONNECT_TIMEOUT);
+    }
+
+    /**
+     * Creates child DOM elements. Called automatically once on `connectedCallback`.
+     */
+    oninit() {
+        this.video = document.createElement('video');
+        this.video.controls = true;
+        this.video.playsInline = true;
+        this.video.preload = 'auto';
+
+        this.video.style.display = 'block'; // fix bottom margin 4px
+        this.video.style.width = '100%';
+        this.video.style.height = '100%';
+
+        this.appendChild(this.video);
+
+        this.video.addEventListener('error', ev => {
+            const err = this.video.error;
+            // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
+            const MEDIA_ERRORS = {
+                1: 'MEDIA_ERR_ABORTED',
+                2: 'MEDIA_ERR_NETWORK',
+                3: 'MEDIA_ERR_DECODE',
+                4: 'MEDIA_ERR_SRC_NOT_SUPPORTED'
+            };
+            console.error('[VideoRTC] Video error:', {
+                error: err ? MEDIA_ERRORS[err.code] : 'unknown',
+                message: err ? err.message : 'unknown',
+                codecs: this.mseCodecs || 'not set',
+                readyState: this.video.readyState,
+                networkState: this.video.networkState,
+                currentTime: this.video.currentTime
+            });
+            if (this.ws) this.ws.close(); // run reconnect for broken MSE stream
+        });
+
+        // all Safari lies about supported audio codecs
+        const m = window.navigator.userAgent.match(/Version\/(\d+).+Safari/);
+        if (m) {
+            // AAC from v13, FLAC from v14, OPUS - unsupported
+            const skip = m[1] < '13' ? 'mp4a.40.2' : m[1] < '14' ? 'flac' : 'opus';
+            this.CODECS.splice(this.CODECS.indexOf(skip));
+        }
+
+        if (this.background) return;
+
+        if ('hidden' in document && this.visibilityCheck) {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    this.disconnectedCallback();
+                } else if (this.isConnected) {
+                    this.connectedCallback();
+                }
+            });
+        }
+
+        if ('IntersectionObserver' in window && this.visibilityThreshold) {
+            const observer = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) {
+                        this.disconnectedCallback();
+                    } else if (this.isConnected) {
+                        this.connectedCallback();
+                    }
+                });
+            }, {threshold: this.visibilityThreshold});
+            observer.observe(this);
+        }
+    }
+
+    /**
+     * Connect to WebSocket. Called automatically on `connectedCallback`.
+     * @return {boolean} true if the connection has started.
+     */
+    onconnect() {
+        if (!this.isConnected || !this.wsURL || this.ws || this.pc) return false;
+
+        // CLOSED or CONNECTING => CONNECTING
+        this.wsState = WebSocket.CONNECTING;
+
+        this.connectTS = Date.now();
+
+        this.ws = new WebSocket(this.wsURL);
+        this.ws.binaryType = 'arraybuffer';
+        this.ws.addEventListener('open', () => this.onopen());
+        this.ws.addEventListener('close', () => this.onclose());
+
+        return true;
+    }
+
+    ondisconnect() {
+        this.wsState = WebSocket.CLOSED;
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+
+        this.pcState = WebSocket.CLOSED;
+        if (this.pc) {
+            this.pc.getSenders().forEach(sender => {
+                if (sender.track) sender.track.stop();
+            });
+            this.pc.close();
+            this.pc = null;
+        }
+
+        this.video.src = '';
+        this.video.srcObject = null;
+    }
+
+    /**
+     * @returns {Array.<string>} of modes (mse, webrtc, etc.)
+     */
+    onopen() {
+        // CONNECTING => OPEN
+        this.wsState = WebSocket.OPEN;
+
+        this.ws.addEventListener('message', ev => {
+            if (typeof ev.data === 'string') {
+                const msg = JSON.parse(ev.data);
+                for (const mode in this.onmessage) {
+                    this.onmessage[mode](msg);
+                }
+            } else {
+                this.ondata(ev.data);
+            }
+        });
+
+        this.ondata = null;
+        this.onmessage = {};
+
+        const modes = [];
+
+        if (this.mode.includes('mse') && ('MediaSource' in window || 'ManagedMediaSource' in window)) {
+            modes.push('mse');
+            this.onmse();
+        } else if (this.mode.includes('hls') && this.video.canPlayType('application/vnd.apple.mpegurl')) {
+            modes.push('hls');
+            this.onhls();
+        } else if (this.mode.includes('mp4')) {
+            modes.push('mp4');
+            this.onmp4();
+        }
+
+        if (this.mode.includes('webrtc') && 'RTCPeerConnection' in window) {
+            modes.push('webrtc');
+            this.onwebrtc();
+        }
+
+        if (this.mode.includes('mjpeg')) {
+            if (modes.length) {
+                this.onmessage['mjpeg'] = msg => {
+                    if (msg.type !== 'error' || msg.value.indexOf(modes[0]) !== 0) return;
+                    this.onmjpeg();
+                };
+            } else {
+                modes.push('mjpeg');
+                this.onmjpeg();
+            }
+        }
+
+        return modes;
+    }
+
+    /**
+     * @return {boolean} true if reconnection has started.
+     */
+    onclose() {
+        if (this.wsState === WebSocket.CLOSED) return false;
+
+        // CONNECTING, OPEN => CONNECTING
+        this.wsState = WebSocket.CONNECTING;
+        this.ws = null;
+
+        // reconnect no more than once every X seconds
+        const delay = Math.max(this.RECONNECT_TIMEOUT - (Date.now() - this.connectTS), 0);
+
+        this.reconnectTID = setTimeout(() => {
+            this.reconnectTID = 0;
+            this.onconnect();
+        }, delay);
+
+        return true;
+    }
+
+    onmse() {
+        /** @type {MediaSource} */
+        let ms;
+
+        if ('ManagedMediaSource' in window) {
+            const MediaSource = window.ManagedMediaSource;
+
+            ms = new MediaSource();
+            ms.addEventListener('sourceopen', () => {
+                this.send({type: 'mse', value: this.codecs(MediaSource.isTypeSupported)});
+            }, {once: true});
+
+            this.video.disableRemotePlayback = true;
+            this.video.srcObject = ms;
+        } else {
+            ms = new MediaSource();
+            ms.addEventListener('sourceopen', () => {
+                URL.revokeObjectURL(this.video.src);
+                this.send({type: 'mse', value: this.codecs(MediaSource.isTypeSupported)});
+            }, {once: true});
+
+            this.video.src = URL.createObjectURL(ms);
+            this.video.srcObject = null;
+        }
+
+        this.play();
+
+        this.mseCodecs = '';
+
+        this.onmessage['mse'] = msg => {
+            if (msg.type !== 'mse') return;
+
+            this.mseCodecs = msg.value;
+
+            const sb = ms.addSourceBuffer(msg.value);
+            sb.mode = 'segments'; // segments or sequence
+            sb.addEventListener('updateend', () => {
+                if (!sb.updating && bufLen > 0) {
+                    try {
+                        const data = buf.slice(0, bufLen);
+                        sb.appendBuffer(data);
+                        bufLen = 0;
+                    } catch (e) {
+                        // console.debug(e);
+                    }
+                }
+
+                if (!sb.updating && sb.buffered && sb.buffered.length) {
+                    const end = sb.buffered.end(sb.buffered.length - 1);
+                    const start = end - 5;
+                    const start0 = sb.buffered.start(0);
+                    if (start > start0) {
+                        sb.remove(start0, start);
+                        ms.setLiveSeekableRange(start, end);
+                    }
+                    if (this.video.currentTime < start) {
+                        this.video.currentTime = start;
+                    }
+                    const gap = end - this.video.currentTime;
+                    this.video.playbackRate = gap > 0.1 ? gap : 0.1;
+                    // console.debug('VideoRTC.buffered', gap, this.video.playbackRate, this.video.readyState);
+                }
+            });
+
+            const buf = new Uint8Array(2 * 1024 * 1024);
+            let bufLen = 0;
+
+            this.ondata = data => {
+                if (sb.updating || bufLen > 0) {
+                    const b = new Uint8Array(data);
+                    buf.set(b, bufLen);
+                    bufLen += b.byteLength;
+                    // console.debug('VideoRTC.buffer', b.byteLength, bufLen);
+                } else {
+                    try {
+                        sb.appendBuffer(data);
+                    } catch (e) {
+                        // console.debug(e);
+                    }
+                }
+            };
+        };
+    }
+
+    onwebrtc() {
+        const pc = new RTCPeerConnection(this.pcConfig);
+
+        pc.addEventListener('icecandidate', ev => {
+            if (ev.candidate && this.mode.includes('webrtc/tcp') && ev.candidate.protocol === 'udp') return;
+
+            const candidate = ev.candidate ? ev.candidate.toJSON().candidate : '';
+            this.send({type: 'webrtc/candidate', value: candidate});
+        });
+
+        pc.addEventListener('connectionstatechange', () => {
+            if (pc.connectionState === 'connected') {
+                const tracks = pc.getTransceivers()
+                    .filter(tr => tr.currentDirection === 'recvonly') // skip inactive
+                    .map(tr => tr.receiver.track);
+                /** @type {HTMLVideoElement} */
+                const video2 = document.createElement('video');
+                video2.addEventListener('loadeddata', () => this.onpcvideo(video2), {once: true});
+                video2.srcObject = new MediaStream(tracks);
+            } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                pc.close(); // stop next events
+
+                this.pcState = WebSocket.CLOSED;
+                this.pc = null;
+
+                this.onconnect();
+            }
+        });
+
+        this.onmessage['webrtc'] = msg => {
+            switch (msg.type) {
+                case 'webrtc/candidate':
+                    if (this.mode.includes('webrtc/tcp') && msg.value.includes(' udp ')) return;
+
+                    pc.addIceCandidate({candidate: msg.value, sdpMid: '0'}).catch(er => {
+                        console.warn(er);
+                    });
+                    break;
+                case 'webrtc/answer':
+                    pc.setRemoteDescription({type: 'answer', sdp: msg.value}).catch(er => {
+                        console.warn(er);
+                    });
+                    break;
+                case 'error':
+                    if (!msg.value.includes('webrtc/offer')) return;
+                    pc.close();
+            }
+        };
+
+        this.createOffer(pc).then(offer => {
+            this.send({type: 'webrtc/offer', value: offer.sdp});
+        });
+
+        this.pcState = WebSocket.CONNECTING;
+        this.pc = pc;
+    }
+
+    /**
+     * @param pc {RTCPeerConnection}
+     * @return {Promise<RTCSessionDescriptionInit>}
+     */
+    async createOffer(pc) {
+        try {
+            if (this.media.includes('microphone')) {
+                const media = await navigator.mediaDevices.getUserMedia({audio: true});
+                media.getTracks().forEach(track => {
+                    pc.addTransceiver(track, {direction: 'sendonly'});
+                });
+            }
+        } catch (e) {
+            console.warn(e);
+        }
+
+        for (const kind of ['video', 'audio']) {
+            if (this.media.includes(kind)) {
+                pc.addTransceiver(kind, {direction: 'recvonly'});
+            }
+        }
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        return offer;
+    }
+
+    /**
+     * @param video2 {HTMLVideoElement}
+     */
+    onpcvideo(video2) {
+        if (this.pc) {
+            // Video+Audio > Video, H265 > H264, Video > Audio, WebRTC > MSE
+            let rtcPriority = 0, msePriority = 0;
+
+            /** @type {MediaStream} */
+            const stream = video2.srcObject;
+            if (stream.getVideoTracks().length > 0) {
+                // not the best, but a pretty simple way to check a codec
+                const isH265Supported =  this.pc.remoteDescription.sdp.includes('H265/90000');
+                rtcPriority += isH265Supported ? 0x240 : 0x220;
+            }
+            if (stream.getAudioTracks().length > 0) rtcPriority += 0x102;
+
+            if (this.mseCodecs.includes('hvc1.')) msePriority += 0x230;
+            if (this.mseCodecs.includes('avc1.')) msePriority += 0x210;
+            if (this.mseCodecs.includes('mp4a.')) msePriority += 0x101;
+
+            if (rtcPriority >= msePriority) {
+                this.video.srcObject = stream;
+                this.play();
+
+                this.pcState = WebSocket.OPEN;
+
+                this.wsState = WebSocket.CLOSED;
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+            } else {
+                this.pcState = WebSocket.CLOSED;
+                if (this.pc) {
+                    this.pc.close();
+                    this.pc = null;
+                }
+            }
+        }
+
+        video2.srcObject = null;
+    }
+
+    onmjpeg() {
+        this.ondata = data => {
+            this.video.controls = false;
+            this.video.poster = 'data:image/jpeg;base64,' + VideoRTC.btoa(data);
+        };
+
+        this.send({type: 'mjpeg'});
+    }
+
+    onhls() {
+        this.onmessage['hls'] = msg => {
+            if (msg.type !== 'hls') return;
+
+            const url = 'http' + this.wsURL.substring(2, this.wsURL.indexOf('/ws')) + '/hls/';
+            const playlist = msg.value.replace('hls/', url);
+            this.video.src = 'data:application/vnd.apple.mpegurl;base64,' + btoa(playlist);
+            this.play();
+        };
+
+        this.send({type: 'hls', value: this.codecs(type => this.video.canPlayType(type))});
+    }
+
+    onmp4() {
+        /** @type {HTMLCanvasElement} **/
+        const canvas = document.createElement('canvas');
+        /** @type {CanvasRenderingContext2D} */
+        let context;
+
+        /** @type {HTMLVideoElement} */
+        const video2 = document.createElement('video');
+        video2.autoplay = true;
+        video2.playsInline = true;
+        video2.muted = true;
+
+        video2.addEventListener('loadeddata', () => {
+            if (!context) {
+                canvas.width = video2.videoWidth;
+                canvas.height = video2.videoHeight;
+                context = canvas.getContext('2d');
+            }
+
+            context.drawImage(video2, 0, 0, canvas.width, canvas.height);
+
+            this.video.controls = false;
+            this.video.poster = canvas.toDataURL('image/jpeg');
+        });
+
+        this.ondata = data => {
+            video2.src = 'data:video/mp4;base64,' + VideoRTC.btoa(data);
+        };
+
+        this.send({type: 'mp4', value: this.codecs(this.video.canPlayType)});
+    }
+
+    static btoa(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        let binary = '';
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+}
+
+if (!customElements.get('frigate-go2rtc-player')) customElements.define('frigate-go2rtc-player', VideoRTC);
+
 // card.js — main FrigateModernHassCard custom element
 
 class FrigateModernHassCard extends HTMLElement {
@@ -366,6 +1070,18 @@ class FrigateModernHassCard extends HTMLElement {
       theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
+      // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
+      // (WebRTC/MSE) for much lower latency; it falls back to the standard
+      // Home Assistant stream if it can't connect.
+      live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
+      // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
+      // travel through Home Assistant's proxy — it connects straight to
+      // go2rtc's own port, which generally only resolves on the local network,
+      // so remotely and in the companion apps it just hangs in CONNECTING
+      // forever while MSE quietly carries the stream anyway. 'webrtc' is there
+      // for local setups that want the lowest possible latency; 'auto' leaves
+      // the choice to the player (it tries WebRTC first).
+      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
@@ -406,10 +1122,16 @@ class FrigateModernHassCard extends HTMLElement {
     if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
     if (this._ro) this._ro.disconnect();
     this._revokeClipBlob();
+    this._teardownGo2rtc();
+    this._teardownGridGo2rtc();
   }
 
   // ── init ─────────────────────────────────────────────────
   async _start() {
+    // Before any awaits: the layout classes decide the stream's size, and
+    // without them the card renders 16:9 across its full width — briefly
+    // enormous on a wide dashboard.
+    this._setupResizeObserver();
     await this._discoverAll();
     const now = Math.floor(Date.now()/1000);
     this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
@@ -423,7 +1145,6 @@ class FrigateModernHassCard extends HTMLElement {
     this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
     const shouldRotate = this._config.rotate_on_load || this._config.rotate_seconds > 0;
     if (shouldRotate && this._config.cameras.length > 1) this._startRotate();
-    this._setupResizeObserver();
   }
 
   // Discover all cameras in parallel for faster startup
@@ -450,10 +1171,175 @@ class FrigateModernHassCard extends HTMLElement {
   async _mountEngine() {
     const slot = this.shadowRoot.querySelector('#engine'); if (!slot) return;
     const entity = this._activeCam?.entity; if (!entity) return;
-    slot.innerHTML = '<div class="ph"><div class="ph-spin"></div></div>';
+    const spinner = '<div class="ph"><div class="ph-spin"></div></div>';
+    slot.innerHTML = spinner;
     this._engine = null;
+    this._teardownGo2rtc();
+    this._engineSeq = (this._engineSeq || 0) + 1;
+    const token = this._engineSeq;
     const stateObj = this._hlsStateObj(entity);
     if (!stateObj) return;
+
+    if (this._config.live_provider === 'go2rtc') {
+      const ok = await this._mountGo2rtc(slot, token);
+      if (ok || this._engineSeq !== token) return;
+      slot.innerHTML = spinner; // go2rtc didn't start — fall through to HLS
+    }
+    this._mountHaPlayer(slot, entity, stateObj);
+  }
+
+  // Live view via Frigate's built-in go2rtc (WebRTC/MSE): far lower latency
+  // than HLS, and lighter on the browser. Reached through the Frigate
+  // integration's own proxy, so no separate go2rtc URL or port is needed and
+  // it works through HA auth — including the companion apps.
+  //
+  // Frigate deprecated the /mse/ proxy path in favour of /go2rtc/ws/ (the MSE
+  // *protocol* is unaffected — it's the route that changed). The new path
+  // needs Frigate integration v5.12.0+, so try it first and fall back to the
+  // old one for older installs rather than making users work out which of the
+  // two their setup supports. On Frigate 0.18+ both resolve to the same
+  // upstream anyway.
+  // Returns true when go2rtc is playing (or was superseded), false to fall back to HLS.
+  async _mountGo2rtc(slot, token) {
+    const { clientId, cam } = this._cc();
+    if (!clientId || !cam) return false;
+    const paths = this._go2rtcPaths(clientId, cam);
+    for (const path of paths) {
+      const { ok, routeWorks } = await this._tryGo2rtcPath(slot, token, path);
+      if (this._engineSeq !== token) return true; // superseded, nothing to do
+      if (ok) { this._go2rtcPath = path; return true; } // remember what worked
+      // The socket opened but the stream never played: this proxy route is
+      // fine, so the other one won't help. Go straight to the HLS fallback.
+      if (routeWorks) return false;
+    }
+    return false;
+  }
+  async _tryGo2rtcPath(slot, token, path) {
+    const src = await this._signed(path);
+    if (this._engineSeq !== token) return { ok: false, routeWorks: false };
+
+    const player = document.createElement('frigate-go2rtc-player');
+    player.style.cssText = 'width:100%;height:100%;display:block';
+    slot.innerHTML = ''; slot.appendChild(player); // creates its <video> synchronously
+    // Upstream's player starts unmuted and only mutes if autoplay is refused;
+    // mute before connecting so the live view is never unexpectedly audible.
+    if (player.video) {
+      player.video.muted = true;
+      player.video.style.objectFit = 'contain';
+    }
+    // WebRTC media does not travel through HA's proxy — it goes straight to
+    // go2rtc's own port, which typically only resolves on the local network.
+    // 'mse' keeps everything on the (proxied) WebSocket instead.
+    this._applyGo2rtcMode(player);
+    player.src = src;
+    this._go2rtcPlayer = player;
+    this._engine = player;
+    this._renderStreamCtrl();
+
+    // Two separate questions, and conflating them was a bug: does this proxy
+    // route exist (did the socket open?), and does the stream actually play?
+    // A blind timeout tore down connections that were merely slow to start —
+    // cameras that take a while to come up never got the chance, and go2rtc's
+    // own reconnect logic never got to run either.
+    const SOCKET_MS = 4000;   // route unusable if the socket never opens
+    const PLAY_MS = 15000;    // generous: cold cameras can take a while
+    const result = await new Promise(resolve => {
+      let done = false;
+      const finish = r => { if (!done) { done = true; clearInterval(poll); resolve(r); } };
+      const onPlaying = () => finish({ ok: true, routeWorks: true });
+      player.video?.addEventListener('playing', onPlaying, { once: true });
+      player.video?.addEventListener('loadeddata', onPlaying, { once: true });
+      const started = Date.now();
+      const poll = setInterval(() => {
+        const elapsed = Date.now() - started;
+        const socketOpen = player.wsState === WebSocket.OPEN || player.pcState === WebSocket.OPEN;
+        if (!socketOpen && elapsed > SOCKET_MS) finish({ ok: false, routeWorks: false });
+        else if (elapsed > PLAY_MS) finish({ ok: false, routeWorks: true });
+      }, 250);
+    });
+    if (this._engineSeq !== token) return { ok: false, routeWorks: true };
+    if (result.ok) { this._startGo2rtcWatchdog(player, () => this._mountEngine()); return result; }
+    this._teardownGo2rtc();
+    return result;
+  }
+  // Candidate proxy paths, newest first. Once one has worked we keep using it,
+  // so the grid doesn't have to rediscover it per camera.
+  _go2rtcPaths(clientId, cam) {
+    const query = `?src=${encodeURIComponent(cam)}`;
+    const build = kind => kind === 'new'
+      ? `/api/frigate/${clientId}/go2rtc/ws/api/ws${query}`
+      : `/api/frigate/${clientId}/mse/api/ws${query}`;
+    const known = this._go2rtcPath?.includes('/go2rtc/ws/') ? 'new'
+                : this._go2rtcPath ? 'old' : null;
+    return known ? [build(known)] : [build('new'), build('old')];
+  }
+  _applyGo2rtcMode(player) {
+    if (this._config.go2rtc_mode === 'webrtc') player.mode = 'webrtc';
+    else if (this._config.go2rtc_mode !== 'auto') player.mode = 'mse';
+  }
+  // Recovery watchdog. The player has some reconnect logic of its own, but it
+  // has two gaps: when WebRTC is carrying the stream the WebSocket is already
+  // closed, so its video-error handler (`if (this.ws) this.ws.close()`) does
+  // nothing at all; and a peer connection that ends up 'closed' rather than
+  // 'failed' never triggers its reconnect either. Both leave a frozen picture
+  // with nothing trying to fix it.
+  //
+  // So watch whether playback is actually advancing. Try a soft reconnect
+  // first (same signed URL), and after repeated failures remount the engine
+  // entirely — which brings the HLS fallback back into play if go2rtc is
+  // simply unavailable.
+  _startGo2rtcWatchdog(player, onGiveUp) {
+    const CHECK_MS = 2000, STALL_MS = 8000, MAX_SOFT_RETRIES = 3;
+    clearInterval(player._fmhcWatch);
+    let lastTime = -1, stalledMs = 0, retries = 0;
+    player._fmhcWatch = setInterval(() => {
+      if (!player.isConnected) { clearInterval(player._fmhcWatch); return; }
+      const v = player.video;
+      // Don't fight the user or the browser: a deliberate pause and a
+      // backgrounded tab both legitimately stop playback.
+      if (!v || v.paused || document.hidden) { stalledMs = 0; return; }
+
+      const advancing = v.currentTime !== lastTime;
+      lastTime = v.currentTime;
+      const noConnection = player.wsState === WebSocket.CLOSED && player.pcState === WebSocket.CLOSED;
+      if (advancing && !noConnection) { stalledMs = 0; retries = 0; return; }
+
+      stalledMs += CHECK_MS;
+      if (stalledMs < STALL_MS) return;
+      stalledMs = 0;
+      retries++;
+      if (retries <= MAX_SOFT_RETRIES) {
+        console.warn('[frigate-modern-hass-card] go2rtc stream stalled, reconnecting', `(${retries}/${MAX_SOFT_RETRIES})`);
+        try { player.ondisconnect(); } catch (_) {}
+        try { player.onconnect(); } catch (_) {}
+      } else {
+        console.warn('[frigate-modern-hass-card] go2rtc could not recover, falling back to the Home Assistant stream');
+        clearInterval(player._fmhcWatch);
+        onGiveUp();
+      }
+    }, CHECK_MS);
+  }
+  _stopGo2rtcPlayer(p) {
+    if (!p) return;
+    clearInterval(p._fmhcWatch);
+    // Close the socket/peer connection now rather than waiting out the
+    // player's own disconnect timeout.
+    try { p.ondisconnect(); } catch (_) {}
+    try { p.remove(); } catch (_) {}
+  }
+  _teardownGridGo2rtc() {
+    (this._gridPlayers || []).forEach(p => this._stopGo2rtcPlayer(p));
+    this._gridPlayers = [];
+  }
+  _teardownGo2rtc() {
+    const p = this._go2rtcPlayer;
+    if (!p) return;
+    this._go2rtcPlayer = null;
+    this._stopGo2rtcPlayer(p);
+    if (this._engine === p) this._engine = null;
+  }
+
+  _mountHaPlayer(slot, entity, stateObj) {
     // Use Home Assistant's HLS player directly rather than <ha-camera-stream>.
     // ha-camera-stream picks between HLS and WebRTC, and it picks WebRTC when
     // asked to start muted — but ha-web-rtc-player permanently discards the
@@ -564,7 +1450,11 @@ class FrigateModernHassCard extends HTMLElement {
     const n = this._config.cameras.length;
     const slots = n === 3 ? 4 : n;   // 3 cams → 4 slots, last is placeholder
     grid.className = `cam-grid cams-${n}`;
+    this._teardownGridGo2rtc();
     grid.innerHTML = '';
+    this._gridSeq = (this._gridSeq || 0) + 1;
+    const gridToken = this._gridSeq;
+    this._gridToken = gridToken;
     for (let i = 0; i < slots; i++) {
       const slot = document.createElement('div');
       const isPlaceholder = i >= n;
@@ -572,13 +1462,13 @@ class FrigateModernHassCard extends HTMLElement {
       if (!isPlaceholder) {
         const c = this._config.cameras[i];
         const name = cap(camDisplayName(c));
-        // stream
-        const stateObj = this._hlsStateObj(c.entity);
-        if (stateObj) {
-          const s = document.createElement('ha-camera-stream');
-          s.hass = this._hass; s.stateObj = stateObj; s.controls = false; s.muted = true;
-          s.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
-          slot.appendChild(s);
+        // stream — go2rtc when configured (one WebSocket per tile is far
+        // lighter than a full HLS pipeline each), otherwise the HA stream.
+        if (this._config.live_provider === 'go2rtc') {
+          slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
+          this._mountGridGo2rtc(slot, c.entity);
+        } else {
+          this._mountGridHaStream(slot, c.entity);
         }
         // label
         const lbl = document.createElement('div');
@@ -597,6 +1487,72 @@ class FrigateModernHassCard extends HTMLElement {
       }
       grid.appendChild(slot);
     }
+  }
+
+  _mountGridHaStream(slot, entity) {
+    const stateObj = this._hlsStateObj(entity);
+    if (!stateObj) return;
+    const s = document.createElement('ha-camera-stream');
+    s.hass = this._hass; s.stateObj = stateObj; s.controls = false; s.muted = true;
+    s.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
+    slot.querySelector('.ph')?.remove();
+    slot.insertAdjacentElement('afterbegin', s);
+  }
+  // A grid tile's go2rtc stream. No controls here: tiles stay
+  // pointer-events:none so a click selects the camera rather than hitting the
+  // player. Falls back to the HA stream for this tile alone if it can't start.
+  async _mountGridGo2rtc(slot, entity) {
+    const token = this._gridToken;
+    const cache = this._camCache[entity];
+    const clientId = cache?.clientId, cam = cache?.cam;
+    const giveUp = () => {
+      if (this._gridToken !== token || !slot.isConnected) return;
+      this._mountGridHaStream(slot, entity);
+    };
+    if (!clientId || !cam) { giveUp(); return; }
+
+    const src = await this._signed(this._go2rtcPaths(clientId, cam)[0]);
+    if (this._gridToken !== token || !slot.isConnected) return;
+
+    const player = document.createElement('frigate-go2rtc-player');
+    player.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
+    slot.insertAdjacentElement('afterbegin', player);
+    if (player.video) {
+      player.video.controls = false;
+      player.video.muted = true;
+      player.video.style.objectFit = 'contain';
+    }
+    this._applyGo2rtcMode(player);
+    player.src = src;
+    (this._gridPlayers = this._gridPlayers || []).push(player);
+
+    const ok = await new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (!done) { done = true; clearInterval(poll); resolve(v); } };
+      player.video?.addEventListener('playing', () => finish(true), { once: true });
+      player.video?.addEventListener('loadeddata', () => finish(true), { once: true });
+      // Detached mid-connect (tile now shows a clip): stop waiting.
+      if (!player.isConnected) finish(false);
+      const started = Date.now();
+      const poll = setInterval(() => {
+        const elapsed = Date.now() - started;
+        const open = player.wsState === WebSocket.OPEN || player.pcState === WebSocket.OPEN;
+        if ((!open && elapsed > 4000) || elapsed > 15000) finish(false);
+      }, 250);
+    });
+    if (this._gridToken !== token || !slot.isConnected || !player.isConnected) {
+      this._stopGo2rtcPlayer(player);
+      this._gridPlayers = (this._gridPlayers || []).filter(x => x !== player);
+      return;
+    }
+    if (ok) {
+      slot.querySelector('.ph')?.remove();
+      this._startGo2rtcWatchdog(player, giveUp);
+      return;
+    }
+    this._stopGo2rtcPlayer(player);
+    this._gridPlayers = (this._gridPlayers || []).filter(p => p !== player);
+    giveUp();
   }
 
   // ── custom stream controls ────────────────────────────────
@@ -894,6 +1850,7 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   _setupResizeObserver() {
+    if (this._ro) return;
     this._ro = new ResizeObserver(entries => {
       const w = entries[0].contentRect.width;
       this._cardWidth = w;
@@ -973,7 +1930,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('.rec-seek-wrap')) return;
     const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
     const restoreSlot = e.target.closest('[data-restore-slot]');
-    if (restoreSlot) { e.stopPropagation(); this._mountGrid(); return; }
+    if (restoreSlot) { e.stopPropagation(); this._restoreGridSlot(Number(restoreSlot.dataset.restoreSlot)); return; }
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
     const slotFs = e.target.closest('[data-slot-fs]');
     if (slotFs) { e.stopPropagation(); this._fullscreen(slotFs.closest('.grid-slot')); return; }
@@ -1006,6 +1963,28 @@ class FrigateModernHassCard extends HTMLElement {
     }
     return this._events;
   }
+  _stopSlotPlayer(slot) {
+    const p = slot?.querySelector('frigate-go2rtc-player');
+    if (!p) return;
+    this._stopGo2rtcPlayer(p);
+    this._gridPlayers = (this._gridPlayers || []).filter(x => x !== p);
+  }
+  // Put one tile back to its live stream. Rebuilding the whole grid would
+  // drop and reconnect every other camera as well.
+  _restoreGridSlot(idx) {
+    const grid = this.shadowRoot.querySelector('#cam-grid');
+    const slot = grid?.querySelectorAll('.grid-slot:not(.placeholder)')?.[idx];
+    const cam = this._config.cameras[idx];
+    if (!slot || !cam) { this._mountGrid(); return; }
+    this._stopSlotPlayer(slot);
+    slot.innerHTML = `<div class="grid-label">${cap(camDisplayName(cam))}</div>`;
+    if (this._config.live_provider === 'go2rtc') {
+      slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
+      this._mountGridGo2rtc(slot, cam.entity);
+    } else {
+      this._mountGridHaStream(slot, cam.entity);
+    }
+  }
   // Play clip/snapshot inside the matching grid slot (stays in grid mode)
   async _openInGridSlot(id) {
     const ev = this._allDisplayEvents().find(e => e.id === id);
@@ -1018,6 +1997,7 @@ class FrigateModernHassCard extends HTMLElement {
     const slot = slots?.[camIdx < 0 ? 0 : camIdx];
     if (!slot) { this._open(id); return; } // fallback to single view
 
+    this._stopSlotPlayer(slot); // don't leave the tile's stream running headless
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
     const camName = cap((ev.camera||'').replace(/_/g,' '));
     if (isSnap) {
@@ -1033,8 +2013,7 @@ class FrigateModernHassCard extends HTMLElement {
         <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
-        <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
+        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>`;
       this._playMedia(slot.querySelector('video'));
     }
   }
@@ -1743,6 +2722,24 @@ class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
+        <span class="field-label">Live view provider</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc — low latency (experimental)</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+        <div style="margin-top:8px">
+          <span class="field-label">go2rtc transport</span>
+          <div class="radio-row">
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="mse" ${(this._config?.go2rtc_mode||'mse')==='mse'?'checked':''}> MSE (recommended)</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${this._config?.go2rtc_mode==='auto'?'checked':''}> Automatic</label>
+          </div>
+          <small style="color:#6b7280;font-size:11px">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
+        </div>
+      </div>
+
+      <div class="section">
         <span class="field-label">Stream height limit (vh)</span>
         <input name="stream_height" class="tf" id="stream_height" type="number"
           value="${this._config?.stream_height||''}" min="20" max="100"
@@ -1812,6 +2809,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.hidden_tabs = hidden.length ? hidden : [];
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
+    c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
+    c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();
   }
   _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }

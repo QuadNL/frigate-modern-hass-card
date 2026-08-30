@@ -141,6 +141,24 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
+        <span class="field-label">Live view provider</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc — low latency (experimental)</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+        <div style="margin-top:8px">
+          <span class="field-label">go2rtc transport</span>
+          <div class="radio-row">
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="mse" ${(this._config?.go2rtc_mode||'mse')==='mse'?'checked':''}> MSE (recommended)</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
+            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${this._config?.go2rtc_mode==='auto'?'checked':''}> Automatic</label>
+          </div>
+          <small style="color:#6b7280;font-size:11px">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
+        </div>
+      </div>
+
+      <div class="section">
         <span class="field-label">Stream height limit (vh)</span>
         <input name="stream_height" class="tf" id="stream_height" type="number"
           value="${this._config?.stream_height||''}" min="20" max="100"
@@ -211,6 +229,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     c.hidden_tabs = hidden.length ? hidden : [];
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
+    c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
+    c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();
   }
   _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }

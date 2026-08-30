@@ -11,7 +11,7 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 
 ## Features
 
-- **Live stream** — HLS stream with native player controls (play, mute, volume, fullscreen)
+- **Live stream** — native player controls (play, mute, volume, fullscreen), with optional low-latency go2rtc streaming
 - **Multi-camera grid** — up to 4 cameras in a responsive 2×2 grid; tap a camera to open it, or go fullscreen for a wall view
 - **Timeline** — visual recording + event timeline, click to seek, drag to pan
 - **Event tabs** — Clips · Snapshots · Recordings · Reviews · Kept (favourites)
@@ -85,6 +85,45 @@ default_view: single     # or 'grid'
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
 | `stream_height` | number | — | Max stream height in vh |
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
+| `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
+| `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
+
+## Low-latency live view with go2rtc
+
+By default the live view uses Home Assistant's own stream, which buffers several
+seconds ahead. Frigate ships with go2rtc built in, and streaming through that
+instead cuts the delay to roughly a second and is noticeably lighter on the
+browser — which matters most in grid view, where every camera streams at once.
+
+This is **opt-in**. To enable it, add one line to your card configuration:
+
+```yaml
+type: custom:frigate-modern-hass-card
+camera_entity: camera.front_door
+live_provider: go2rtc
+```
+
+Or in the visual editor: **Live view provider → go2rtc**.
+
+No extra setup is needed. The card reaches go2rtc through the Frigate
+integration's own proxy, so there is no separate URL or port to configure and it
+keeps working remotely and in the companion apps. If go2rtc can't be reached,
+the card falls back to the Home Assistant stream on its own — in grid view each
+camera falls back independently, so one problematic camera won't take the others
+down with it.
+
+### Transport
+
+| Value | Behaviour |
+| --- | --- |
+| `mse` (default) | Everything runs over the proxied connection. Works locally, remotely and in the companion apps. |
+| `webrtc` | Lowest possible latency, but connects straight to go2rtc's own port, which usually only resolves on the local network. |
+| `auto` | Leaves the choice to the player, which tries WebRTC first. |
+
+```yaml
+live_provider: go2rtc
+go2rtc_mode: webrtc   # only worth trying on a local network
+```
 
 ## Requirements
 
