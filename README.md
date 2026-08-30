@@ -6,6 +6,8 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/QuadNL/frigate-modern-hass-card.svg)](https://github.com/QuadNL/frigate-modern-hass-card/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Ko-Fi][ko_fi_shield]][ko_fi]
+[![PayPal.Me][paypal_me_shield]][paypal_me]
 
 A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in Home Assistant.
 
@@ -134,6 +136,12 @@ go2rtc_mode: webrtc   # only worth trying on a local network
 
 If you like this card; why don't buy me a coffee? 😊
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/U2W120MCVZ)
+
+[ko_fi_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Ko-Fi&color=F16061&logo=ko-fi&logoColor=white
+[ko_fi]: https://ko-fi.com/U2W120MCVZ
+
+[paypal_me_shield]: https://img.shields.io/static/v1.svg?label=%20&message=PayPal.Me&logo=paypal
+[paypal_me]: https://paypal.me/QuadNL
 
 ## License
 
