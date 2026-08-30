@@ -76,10 +76,9 @@ export const STYLES = `
   .scb-btn svg{width:15px;height:15px;}
 
   /* ── camera grid ── */
-  .cam-grid{display:grid;width:100%;}
-  .cam-grid.cams-1{grid-template-columns:1fr;}
-  .cam-grid.cams-2{grid-template-columns:1fr 1fr;}
-  .cam-grid.cams-3,.cam-grid.cams-4{grid-template-columns:1fr 1fr;}
+  /* Column count comes from --grid-cols, set inline by _mountGrid, so any
+     number of cameras works without a rule per count. */
+  .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);}
   .grid-slot{position:relative;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
   .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
@@ -102,18 +101,19 @@ export const STYLES = `
   .cam-grid:fullscreen{width:100vw;height:100vh;max-height:none!important;background:#000;animation:fsIn .25s cubic-bezier(.22,.8,.22,1);}
   .cam-grid:-webkit-full-screen{width:100vw;height:100vh;max-height:none!important;background:#000;animation:fsIn .25s cubic-bezier(.22,.8,.22,1);}
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
-  .cam-grid:fullscreen.cams-3,.cam-grid:fullscreen.cams-4,.cam-grid:-webkit-full-screen.cams-3,.cam-grid:-webkit-full-screen.cams-4{grid-template-rows:1fr 1fr;}
+  .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
   .grid-label{position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
-  /* 3/4-cam grid: cap height so 2 rows fit viewport */
-  .card.grid-mode .cam-grid.cams-3,
-  .card.grid-mode .cam-grid.cams-4 { max-height:var(--stream-h,70vh); grid-template-rows:1fr 1fr; }
-  .card.grid-mode .cam-grid.cams-3 .grid-slot,
-  .card.grid-mode .cam-grid.cams-4 .grid-slot { aspect-ratio:unset; min-height:0; }
+  /* More than one row: cap the height so the whole grid fits the viewport and
+     let the tiles share it, rather than each keeping its 16:9 box. */
+  .card.grid-mode .cam-grid.multi-row { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
+  .card.grid-mode .cam-grid.multi-row .grid-slot { aspect-ratio:unset; min-height:0; }
   /* Single stream: optional height cap */
   #eng-wrap { max-height:var(--stream-h,none); }
-  /* Mobile grid: show 2×2 at same total height as a single stream (56.25vw = 16:9) */
-  .card.mobile .cam-grid { max-height:56.25vw; }
-  .card.mobile .cam-grid .grid-slot { aspect-ratio:unset; min-height:0; }
+  /* Mobile: keep a multi-row grid about as tall as a single stream would be.
+     A single column is left alone — that is the stacked layout, and squashing
+     it defeats the point. */
+  .card.mobile .cam-grid.multi-row { max-height:56.25vw; }
+  .card.mobile .cam-grid.multi-row .grid-slot { aspect-ratio:unset; min-height:0; }
 
   /* ── info row ── */
   .info-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:10px 16px 8px;border-bottom:1px solid var(--c-border);}

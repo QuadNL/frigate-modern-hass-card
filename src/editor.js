@@ -67,9 +67,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     </style>
     <div class="ed-wrap">
       <div>
-        <span class="field-label">Cameras (up to 4) ${frigEntities.length ? '<small style="font-weight:400;color:#6b7280">· Frigate cameras detected</small>' : ''}</span>
+        <span class="field-label">Cameras ${frigEntities.length ? '<small style="font-weight:400;color:#6b7280">· Frigate cameras detected</small>' : ''}</span>
         <div id="cam-list">${camRows}</div>
-        ${cams.length < 4 ? `<button class="add-btn" id="add-cam">+ Add camera</button>` : ''}
+        <button class="add-btn" id="add-cam">+ Add camera</button>
+        ${cams.length > 4 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Every camera in the grid streams at once — more cameras means more load on the browser and on Frigate.</small>' : ''}
       </div>
 
       <label><span class="field-label">Title (optional)</span>
@@ -138,6 +139,18 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           ${tabCheck('reviews','Reviews')}
           ${tabCheck('kept','Kept')}
         </div>
+      </div>
+
+      <div class="section">
+        <span class="field-label">Grid columns</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="grid_columns" value="auto" ${(this._config?.grid_columns||'auto')==='auto'?'checked':''}> Automatic</label>
+          <label class="radio-lbl"><input type="radio" name="grid_columns" value="1" ${String(this._config?.grid_columns)==='1'?'checked':''}> 1 (stacked)</label>
+          <label class="radio-lbl"><input type="radio" name="grid_columns" value="2" ${String(this._config?.grid_columns)==='2'?'checked':''}> 2</label>
+          <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
+          <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">Automatic picks a column count from the number of cameras. Choose 1 to stack them vertically, which reads better on a phone.</small>
       </div>
 
       <div class="section">
@@ -229,6 +242,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     c.hidden_tabs = hidden.length ? hidden : [];
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
+    const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
+    c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();

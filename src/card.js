@@ -40,7 +40,6 @@ export class FrigateModernHassCard extends HTMLElement {
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null }];
     else throw new Error('camera_entity or cameras[] required');
-    if (cameras.length > 4) cameras = cameras.slice(0, 4);
 
     this._config = {
       cameras,
@@ -60,6 +59,10 @@ export class FrigateModernHassCard extends HTMLElement {
       // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
+      // Grid columns: 'auto' works one out from the camera count, or pin a
+      // number. 1 stacks the cameras vertically.
+      grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
+        ? 'auto' : Math.max(1, Math.min(6, Number(config.grid_columns) || 1)),
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
       // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
       // travel through Home Assistant's proxy — it connects straight to
@@ -432,11 +435,25 @@ export class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── camera grid ───────────────────────────────────────────
+  // Columns for the grid. 'auto' keeps tiles roughly square-ish as cameras are
+  // added; a pinned number wins, and 1 gives a vertical stack.
+  _gridColumns(n) {
+    const cfg = this._config.grid_columns;
+    if (cfg && cfg !== 'auto') return cfg;
+    if (n <= 1) return 1;
+    if (n <= 4) return 2;
+    if (n <= 9) return 3;
+    return 4;
+  }
   async _mountGrid() {
     const grid = this.shadowRoot.querySelector('#cam-grid'); if (!grid) return;
     const n = this._config.cameras.length;
-    const slots = n === 3 ? 4 : n;   // 3 cams → 4 slots, last is placeholder
-    grid.className = `cam-grid cams-${n}`;
+    const cols = this._gridColumns(n);
+    const rows = Math.ceil(n / cols);
+    const slots = cols * rows;       // remainder becomes placeholders
+    grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}`;
+    grid.style.setProperty('--grid-cols', cols);
+    grid.style.setProperty('--grid-rows', rows);
     this._teardownGridGo2rtc();
     grid.innerHTML = '';
     this._gridSeq = (this._gridSeq || 0) + 1;

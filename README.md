@@ -12,7 +12,7 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 ## Features
 
 - **Live stream** — native player controls (play, mute, volume, fullscreen), with optional low-latency go2rtc streaming
-- **Multi-camera grid** — up to 4 cameras in a responsive 2×2 grid; tap a camera to open it, or go fullscreen for a wall view
+- **Multi-camera grid** — any number of cameras, with a configurable column count; tap a camera to open it, or go fullscreen for a wall view
 - **Timeline** — visual recording + event timeline, click to seek, drag to pan
 - **Event tabs** — Clips · Snapshots · Recordings · Reviews · Kept (favourites)
 - **Recording viewer** — custom playback controls with correct clip duration, seek bar, download-from-position
@@ -73,7 +73,7 @@ default_view: single     # or 'grid'
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `camera_entity` | string | — | Single camera entity (shorthand) |
-| `cameras` | list | — | List of `{entity, name}` objects (up to 4) |
+| `cameras` | list | — | List of `{entity, name}` objects |
 | `title` | string | — | Card title |
 | `subtitle` | string | — | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |
@@ -85,6 +85,7 @@ default_view: single     # or 'grid'
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
 | `stream_height` | number | — | Max stream height in vh |
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
+| `grid_columns` | string/number | `auto` | Grid columns: `auto`, or `1`–`6`. Use `1` to stack cameras vertically |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
 
