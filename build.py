@@ -25,7 +25,6 @@ MODULES = [
 
 OUTPUT = 'frigate-modern-hass-card.js'
 BETA_OUTPUT = 'frigate-modern-hass-card-beta.js'
-BUILD_COUNTER = '.beta-build'
 
 # Methods available on the element itself without being declared in src/.
 INHERITED = {
@@ -78,19 +77,35 @@ def check_config_options(source):
         sys.exit(1)
 
 
-def beta_stamp():
-    """Next build number, counting up across runs. Kept out of git."""
-    n = 0
-    if os.path.exists(BUILD_COUNTER):
-        with open(BUILD_COUNTER) as f:
-            n = int((f.read().strip() or '0'))
-    n += 1
-    with open(BUILD_COUNTER, 'w') as f:
-        f.write(str(n))
-    return n
+def bump_dev():
+    """Raise the -dev.N counter in src/constants.js and return the new version.
+
+    Dev builds are named X.Y.Z-dev.N and the number goes up with every build
+    that leaves this machine, so the version on the card says exactly which
+    build you are looking at. A release version is not a valid dev build: it
+    would put two different files under one name, which is how you end up
+    debugging a file the browser never reloaded.
+    """
+    path = 'src/constants.js'
+    src = open(path, encoding='utf-8').read()
+    m = re.search(r"VERSION = '([^']*)'", src)
+    if not m:
+        print('ERROR: no VERSION in ' + path)
+        sys.exit(1)
+    dev = re.match(r'^(\d+\.\d+\.\d+)-dev\.(\d+)$', m.group(1))
+    if not dev:
+        print('ERROR: %s is a release version, not a dev build.' % m.group(1))
+        print('       Set VERSION to something like 1.3.0-dev.1 before building a beta.')
+        sys.exit(1)
+    version = '%s-dev.%d' % (dev.group(1), int(dev.group(2)) + 1)
+    src = src.replace("VERSION = '%s'" % m.group(1), "VERSION = '%s'" % version, 1)
+    open(path, 'w', encoding='utf-8', newline='').write(src)
+    return version
 
 
 def bundle(beta=False):
+    if beta:
+        bump_dev()
     parts = []
     for path in MODULES:
         if not os.path.exists(path):
@@ -121,13 +136,9 @@ def bundle(beta=False):
     out = OUTPUT
     if beta:
         out = BETA_OUTPUT
-        n = beta_stamp()
         joined = joined.replace(
             "CARD_TAG = 'frigate-modern-hass-card'",
             "CARD_TAG = 'frigate-modern-hass-card-beta'")
-        joined = re.sub(r"VERSION = '([^']*)'",
-                        lambda m: "VERSION = '%s b%d'" % (m.group(1), n),
-                        joined, count=1)
 
     with open(out, 'w', encoding='utf-8') as f:
         f.write(joined)
@@ -136,7 +147,7 @@ def bundle(beta=False):
     shown = re.search(r"VERSION = '([^']*)'", joined)
     print('OK %s  %s  (%d lines, %s chars)' % (out, shown.group(1) if shown else '?', lines, format(len(joined), ',')))
     if beta:
-        print('   load it with ?v=b%d' % n)
+        print('   load it with ?v=' + (shown.group(1).replace('.', '').replace('-', '') if shown else ''))
 
 if __name__ == '__main__':
     bundle(beta='--beta' in sys.argv)
