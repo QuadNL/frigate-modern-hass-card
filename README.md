@@ -4,7 +4,6 @@
 [![GitHub Release](https://img.shields.io/github/release/QuadNL/frigate-modern-hass-card.svg)](https://github.com/QuadNL/frigate-modern-hass-card/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Ko-Fi][ko_fi_shield]][ko_fi]
-[![PayPal.Me][paypal_me_shield]][paypal_me]
 
 > **AI Assistance Notice**
 > This card was built with the help of an AI coding assistant. All code has been personally reviewed, tested on a real Frigate setup, and is actively maintained. Found a bug or have a suggestion? Open an issue on GitHub.
@@ -140,8 +139,6 @@ If you like this card; why don't buy me a coffee? 😊
 [ko_fi_shield]: https://img.shields.io/static/v1.svg?label=%20&message=Ko-Fi&color=F16061&logo=ko-fi&logoColor=white
 [ko_fi]: https://ko-fi.com/U2W120MCVZ
 
-[paypal_me_shield]: https://img.shields.io/static/v1.svg?label=%20&message=PayPal.Me&logo=paypal
-[paypal_me]: https://paypal.me/QuadNL
 
 ## License
 
