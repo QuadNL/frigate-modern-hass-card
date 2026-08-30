@@ -58,7 +58,7 @@ export const STYLES = `
   #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
   #engine.zooming{transition:none;}
   #engine:not(.zooming){transition:transform .15s ease-out;}
-  #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
+  #engine ha-camera-stream,#engine ha-hls-player,#engine frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
   .viewer .ld{color:var(--c-text2);font-size:13px;}

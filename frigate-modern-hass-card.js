@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0';
+const VERSION = '1.2.0-dev.1';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -108,7 +108,7 @@ const STYLES = `
   #engine{position:absolute;inset:0;touch-action:none;transform-origin:0 0;}
   #engine.zooming{transition:none;}
   #engine:not(.zooming){transition:transform .15s ease-out;}
-  #engine ha-camera-stream,#engine ha-hls-player{width:100%;height:100%;display:block;}
+  #engine ha-camera-stream,#engine ha-hls-player,#engine frigate-go2rtc-player{width:100%;height:100%;display:block;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
   .viewer .ld{color:var(--c-text2);font-size:13px;}
@@ -1070,6 +1070,10 @@ class FrigateModernHassCard extends HTMLElement {
       theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
+      // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
+      // (WebRTC/MSE) for much lower latency; it falls back to the standard
+      // Home Assistant stream if it can't connect.
+      live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
     };
     this._browseOpen = this._config.browse_expanded;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
@@ -1110,6 +1114,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
     if (this._ro) this._ro.disconnect();
     this._revokeClipBlob();
+    this._teardownGo2rtc();
   }
 
   // ── init ─────────────────────────────────────────────────
@@ -1154,10 +1159,73 @@ class FrigateModernHassCard extends HTMLElement {
   async _mountEngine() {
     const slot = this.shadowRoot.querySelector('#engine'); if (!slot) return;
     const entity = this._activeCam?.entity; if (!entity) return;
-    slot.innerHTML = '<div class="ph"><div class="ph-spin"></div></div>';
+    const spinner = '<div class="ph"><div class="ph-spin"></div></div>';
+    slot.innerHTML = spinner;
     this._engine = null;
+    this._teardownGo2rtc();
+    this._engineSeq = (this._engineSeq || 0) + 1;
+    const token = this._engineSeq;
     const stateObj = this._hlsStateObj(entity);
     if (!stateObj) return;
+
+    if (this._config.live_provider === 'go2rtc') {
+      const ok = await this._mountGo2rtc(slot, token);
+      if (ok || this._engineSeq !== token) return;
+      slot.innerHTML = spinner; // go2rtc didn't start — fall through to HLS
+    }
+    this._mountHaPlayer(slot, entity, stateObj);
+  }
+
+  // Live view via Frigate's built-in go2rtc (WebRTC/MSE): far lower latency
+  // than HLS, and lighter on the browser. Reached through the Frigate
+  // integration's own proxy, so no separate go2rtc URL or port is needed and
+  // it works through HA auth — including the companion apps. The path must be
+  // signed: a WebSocket cannot send auth headers.
+  // Returns true when go2rtc is playing (or was superseded), false to fall back.
+  async _mountGo2rtc(slot, token) {
+    const { clientId, cam } = this._cc();
+    if (!clientId || !cam) return false;
+    const path = `/api/frigate/${clientId}/mse/api/ws?src=${encodeURIComponent(cam)}`;
+    const src = await this._signed(path);
+    if (this._engineSeq !== token) return true;
+
+    const player = document.createElement('frigate-go2rtc-player');
+    player.style.cssText = 'width:100%;height:100%;display:block';
+    slot.innerHTML = ''; slot.appendChild(player); // creates its <video> synchronously
+    // Upstream's player starts unmuted and only mutes if autoplay is refused;
+    // mute before connecting so the live view is never unexpectedly audible.
+    if (player.video) {
+      player.video.muted = true;
+      player.video.style.objectFit = 'contain';
+    }
+    player.src = src;
+    this._go2rtcPlayer = player;
+    this._engine = player;
+    this._renderStreamCtrl();
+
+    const started = await new Promise(resolve => {
+      let done = false;
+      const finish = ok => { if (!done) { done = true; resolve(ok); } };
+      player.video?.addEventListener('playing', () => finish(true), { once: true });
+      setTimeout(() => finish(false), 6000);
+    });
+    if (this._engineSeq !== token) return true;
+    if (started) return true;
+    this._teardownGo2rtc();
+    return false;
+  }
+  _teardownGo2rtc() {
+    const p = this._go2rtcPlayer;
+    if (!p) return;
+    this._go2rtcPlayer = null;
+    // Close the socket/peer connection now rather than waiting out the
+    // player's own disconnect timeout.
+    try { p.ondisconnect(); } catch (_) {}
+    try { p.remove(); } catch (_) {}
+    if (this._engine === p) this._engine = null;
+  }
+
+  _mountHaPlayer(slot, entity, stateObj) {
     // Use Home Assistant's HLS player directly rather than <ha-camera-stream>.
     // ha-camera-stream picks between HLS and WebRTC, and it picks WebRTC when
     // asked to start muted — but ha-web-rtc-player permanently discards the
@@ -2447,6 +2515,15 @@ class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
+        <span class="field-label">Live view provider</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
+          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc — low latency (experimental)</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+      </div>
+
+      <div class="section">
         <span class="field-label">Stream height limit (vh)</span>
         <input name="stream_height" class="tf" id="stream_height" type="number"
           value="${this._config?.stream_height||''}" min="20" max="100"
@@ -2516,6 +2593,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.hidden_tabs = hidden.length ? hidden : [];
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
+    c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     this._config=c; this._dispatch();
   }
   _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }

@@ -12,3 +12,6 @@ MODULAR_ARCHITECTURE.md
 
 # Local side-by-side test build (never ship this — it registers a different card tag)
 frigate-modern-hass-card-beta.js
+
+# Scratch folder for downloaded artefacts / comparisons
+TEMP/
