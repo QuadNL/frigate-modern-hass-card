@@ -246,7 +246,7 @@ export class FrigateModernHassCard extends HTMLElement {
       }, 250);
     });
     if (this._engineSeq !== token) return { ok: false, routeWorks: true };
-    if (result.ok) return result;
+    if (result.ok) { this._startGo2rtcWatchdog(player); return result; }
     this._teardownGo2rtc();
     return result;
   }
@@ -266,7 +266,50 @@ export class FrigateModernHassCard extends HTMLElement {
     ['playing','pause','waiting','stalled','ended','emptied','error'].forEach(ev =>
       v.addEventListener(ev, () => log('video:', ev, v.error ? `code=${v.error.code}` : '')));
   }
+  // Recovery watchdog. The player has some reconnect logic of its own, but it
+  // has two gaps: when WebRTC is carrying the stream the WebSocket is already
+  // closed, so its video-error handler (`if (this.ws) this.ws.close()`) does
+  // nothing at all; and a peer connection that ends up 'closed' rather than
+  // 'failed' never triggers its reconnect either. Both leave a frozen picture
+  // with nothing trying to fix it.
+  //
+  // So watch whether playback is actually advancing. Try a soft reconnect
+  // first (same signed URL), and after repeated failures remount the engine
+  // entirely — which brings the HLS fallback back into play if go2rtc is
+  // simply unavailable.
+  _startGo2rtcWatchdog(player) {
+    const CHECK_MS = 2000, STALL_MS = 8000, MAX_SOFT_RETRIES = 3;
+    clearInterval(this._go2rtcWatch);
+    let lastTime = -1, stalledMs = 0, retries = 0;
+    this._go2rtcWatch = setInterval(() => {
+      if (this._go2rtcPlayer !== player || !player.isConnected) { clearInterval(this._go2rtcWatch); return; }
+      const v = player.video;
+      // Don't fight the user or the browser: a deliberate pause and a
+      // backgrounded tab both legitimately stop playback.
+      if (!v || v.paused || document.hidden) { stalledMs = 0; return; }
+
+      const advancing = v.currentTime !== lastTime;
+      lastTime = v.currentTime;
+      const noConnection = player.wsState === WebSocket.CLOSED && player.pcState === WebSocket.CLOSED;
+      if (advancing && !noConnection) { stalledMs = 0; retries = 0; return; }
+
+      stalledMs += CHECK_MS;
+      if (stalledMs < STALL_MS) return;
+      stalledMs = 0;
+      retries++;
+      if (retries <= MAX_SOFT_RETRIES) {
+        console.log('[frigate-card go2rtc] stream stalled — reconnecting', `(${retries}/${MAX_SOFT_RETRIES})`);
+        try { player.ondisconnect(); } catch (_) {}
+        try { player.onconnect(); } catch (_) {}
+      } else {
+        console.log('[frigate-card go2rtc] reconnects exhausted — remounting live view');
+        clearInterval(this._go2rtcWatch);
+        this._mountEngine();
+      }
+    }, CHECK_MS);
+  }
   _teardownGo2rtc() {
+    clearInterval(this._go2rtcWatch);
     const p = this._go2rtcPlayer;
     if (!p) return;
     this._go2rtcPlayer = null;
