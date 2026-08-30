@@ -15,3 +15,4 @@ frigate-modern-hass-card-beta.js
 
 # Scratch folder for downloaded artefacts / comparisons
 TEMP/
+.beta-build

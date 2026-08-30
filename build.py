@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
-build.py — run after every change to src/ files.
+build.py: run after every change to src/ files.
 Bundles src modules into a single frigate-modern-hass-card.js
 by concatenating in dependency order and stripping import/export keywords.
+
+  python build.py           the card itself
+  python build.py --beta    a side by side copy for testing on a live server
+
+The beta build registers under its own element name, so it can sit next to an
+installed card, and it stamps a build number onto the version shown on the card.
+Two test builds of the same version are otherwise indistinguishable, which is
+how you end up debugging a file the browser never reloaded.
 """
-import re, os, sys
+import re, os, sys, time
 
 MODULES = [
     'src/constants.js',
@@ -16,6 +24,8 @@ MODULES = [
 ]
 
 OUTPUT = 'frigate-modern-hass-card.js'
+BETA_OUTPUT = 'frigate-modern-hass-card-beta.js'
+BUILD_COUNTER = '.beta-build'
 
 # Methods available on the element itself without being declared in src/.
 INHERITED = {
@@ -46,7 +56,19 @@ def check_methods(source):
 
 
 
-def bundle():
+def beta_stamp():
+    """Next build number, counting up across runs. Kept out of git."""
+    n = 0
+    if os.path.exists(BUILD_COUNTER):
+        with open(BUILD_COUNTER) as f:
+            n = int((f.read().strip() or '0'))
+    n += 1
+    with open(BUILD_COUNTER, 'w') as f:
+        f.write(str(n))
+    return n
+
+
+def bundle(beta=False):
     parts = []
     for path in MODULES:
         if not os.path.exists(path):
@@ -73,11 +95,25 @@ def bundle():
 
     check_methods(joined)
 
-    with open(OUTPUT, 'w', encoding='utf-8') as f:
+    out = OUTPUT
+    if beta:
+        out = BETA_OUTPUT
+        n = beta_stamp()
+        joined = joined.replace(
+            "CARD_TAG = 'frigate-modern-hass-card'",
+            "CARD_TAG = 'frigate-modern-hass-card-beta'")
+        joined = re.sub(r"VERSION = '([^']*)'",
+                        lambda m: "VERSION = '%s b%d'" % (m.group(1), n),
+                        joined, count=1)
+
+    with open(out, 'w', encoding='utf-8') as f:
         f.write(joined)
 
-    lines = joined.count('\n')
-    print(f'OK {OUTPUT}  ({lines} lines, {len(joined):,} chars)')
+    lines = joined.count(chr(10))
+    shown = re.search(r"VERSION = '([^']*)'", joined)
+    print('OK %s  %s  (%d lines, %s chars)' % (out, shown.group(1) if shown else '?', lines, format(len(joined), ',')))
+    if beta:
+        print('   load it with ?v=b%d' % n)
 
 if __name__ == '__main__':
-    bundle()
+    bundle(beta='--beta' in sys.argv)
