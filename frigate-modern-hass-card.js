@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.2.0-dev.8';
+const VERSION = '1.2.0-dev.9';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -1231,7 +1231,6 @@ class FrigateModernHassCard extends HTMLElement {
     // go2rtc's own port, which typically only resolves on the local network.
     // 'mse' keeps everything on the (proxied) WebSocket instead.
     this._applyGo2rtcMode(player);
-    this._wireGo2rtcDiagnostics(player);
     player.src = src;
     this._go2rtcPlayer = player;
     this._engine = player;
@@ -1262,79 +1261,6 @@ class FrigateModernHassCard extends HTMLElement {
     if (result.ok) { this._startGo2rtcWatchdog(player, () => this._mountEngine()); return result; }
     this._teardownGo2rtc();
     return result;
-  }
-  // Temporary: logs how the go2rtc connection behaves over time (which
-  // transport won, and when it drops). Transitions only, so it stays quiet.
-  _wireGo2rtcDiagnostics(player) {
-    const name = s => ({ 0:'CONNECTING', 1:'OPEN', 2:'CLOSING', 3:'CLOSED' })[s] ?? s;
-    const log = (...a) => console.log('[frigate-card go2rtc]', ...a);
-    let last = '';
-    const timer = setInterval(() => {
-      if (!player.isConnected) { clearInterval(timer); return; }
-      const now = `ws=${name(player.wsState)} pc=${name(player.pcState)} codecs=${player.mseCodecs || '-'}`;
-      if (now !== last) { last = now; log(now); }
-    }, 500);
-    const v = player.video;
-    if (!v) return;
-    ['playing','pause','waiting','stalled','ended','emptied','error'].forEach(ev =>
-      v.addEventListener(ev, () => log('video:', ev, v.error ? `code=${v.error.code}` : '')));
-  }
-  // Candidate proxy paths, newest first. Once one has worked we keep using it,
-  // so the grid doesn't have to rediscover it per camera.
-  _go2rtcPaths(clientId, cam) {
-    const query = `?src=${encodeURIComponent(cam)}`;
-    const build = kind => kind === 'new'
-      ? `/api/frigate/${clientId}/go2rtc/ws/api/ws${query}`
-      : `/api/frigate/${clientId}/mse/api/ws${query}`;
-    const known = this._go2rtcPath?.includes('/go2rtc/ws/') ? 'new'
-                : this._go2rtcPath ? 'old' : null;
-    return known ? [build(known)] : [build('new'), build('old')];
-  }
-  _applyGo2rtcMode(player) {
-    if (this._config.go2rtc_mode === 'webrtc') player.mode = 'webrtc';
-    else if (this._config.go2rtc_mode !== 'auto') player.mode = 'mse';
-  }
-  // Recovery watchdog. The player has some reconnect logic of its own, but it
-  // has two gaps: when WebRTC is carrying the stream the WebSocket is already
-  // closed, so its video-error handler (`if (this.ws) this.ws.close()`) does
-  // nothing at all; and a peer connection that ends up 'closed' rather than
-  // 'failed' never triggers its reconnect either. Both leave a frozen picture
-  // with nothing trying to fix it.
-  //
-  // So watch whether playback is actually advancing. Try a soft reconnect
-  // first (same signed URL), and after repeated failures remount the engine
-  // entirely — which brings the HLS fallback back into play if go2rtc is
-  // simply unavailable.
-  _startGo2rtcWatchdog(player, onGiveUp) {
-    const CHECK_MS = 2000, STALL_MS = 8000, MAX_SOFT_RETRIES = 3;
-    clearInterval(player._fmhcWatch);
-    let lastTime = -1, stalledMs = 0, retries = 0;
-    player._fmhcWatch = setInterval(() => {
-      if (!player.isConnected) { clearInterval(player._fmhcWatch); return; }
-      const v = player.video;
-      // Don't fight the user or the browser: a deliberate pause and a
-      // backgrounded tab both legitimately stop playback.
-      if (!v || v.paused || document.hidden) { stalledMs = 0; return; }
-
-      const advancing = v.currentTime !== lastTime;
-      lastTime = v.currentTime;
-      const noConnection = player.wsState === WebSocket.CLOSED && player.pcState === WebSocket.CLOSED;
-      if (advancing && !noConnection) { stalledMs = 0; retries = 0; return; }
-
-      stalledMs += CHECK_MS;
-      if (stalledMs < STALL_MS) return;
-      stalledMs = 0;
-      retries++;
-      if (retries <= MAX_SOFT_RETRIES) {
-        console.log('[frigate-card go2rtc] stream stalled — reconnecting', `(${retries}/${MAX_SOFT_RETRIES})`);
-        try { player.ondisconnect(); } catch (_) {}
-        try { player.onconnect(); } catch (_) {}
-      } else {
-        console.log('[frigate-card go2rtc] reconnects exhausted — falling back');
-        clearInterval(player._fmhcWatch);
-        onGiveUp();
-      }
-    }, CHECK_MS);
   }
   _stopGo2rtcPlayer(p) {
     if (!p) return;
