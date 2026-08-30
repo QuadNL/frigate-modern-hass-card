@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, CAM_COLORS, MIN_TILE_PX, mkCamState, camDisplayName } from './constants.js';
+         labelColor, CAM_COLORS, MIN_TILE_PX, normSpan, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -37,9 +37,9 @@ export class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span) }));
     else if (config.camera_entity)
-      cameras = [{ entity:config.camera_entity, name:config.title||null }];
+      cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
 
     this._config = {
@@ -519,8 +519,17 @@ export class FrigateModernHassCard extends HTMLElement {
     const grid = this.shadowRoot.querySelector('#cam-grid'); if (!grid) return;
     const n = this._config.cameras.length;
     const cols = this._gridColumns(n);
-    const rows = Math.ceil(n / cols);
-    const slots = cols * rows;       // remainder becomes placeholders
+    // A camera may occupy more than one cell, which is what gives the
+    // asymmetric layouts (one large with smaller ones around it). A span wider
+    // than the grid is clamped, so the same config still works when the column
+    // count drops on a phone.
+    const spans = this._config.cameras.map(c => ({
+      cols: Math.min(c.span?.cols || 1, cols),
+      rows: c.span?.rows || 1,
+    }));
+    const cells = spans.reduce((sum, sp) => sum + sp.cols * sp.rows, 0);
+    const rows = Math.max(1, Math.ceil(cells / cols));
+    const slots = cols * rows;       // leftover cells become placeholders
     grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
@@ -530,11 +539,16 @@ export class FrigateModernHassCard extends HTMLElement {
     this._gridSeq = (this._gridSeq || 0) + 1;
     const gridToken = this._gridSeq;
     this._gridToken = gridToken;
-    for (let i = 0; i < slots; i++) {
+    // Cameras first, then placeholders for whatever cells are left over.
+    const total = n + Math.max(0, slots - cells);
+    for (let i = 0; i < total; i++) {
       const slot = document.createElement('div');
       const isPlaceholder = i >= n;
       slot.className = `grid-slot${isPlaceholder ? ' placeholder' : ''}`;
       if (!isPlaceholder) {
+        const sp = spans[i];
+        if (sp.cols > 1) slot.style.gridColumn = `span ${sp.cols}`;
+        if (sp.rows > 1) slot.style.gridRow = `span ${sp.rows}`;
         const c = this._config.cameras[i];
         const name = cap(camDisplayName(c));
         // stream — go2rtc when configured (one WebSocket per tile is far

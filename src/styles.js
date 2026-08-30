@@ -94,7 +94,9 @@ export const STYLES = `
   /* ── camera grid ── */
   /* Column count comes from --grid-cols, set inline by _mountGrid, so any
      number of cameras works without a rule per count. */
-  .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);}
+  /* dense so a camera spanning several cells does not leave holes behind it:
+     later tiles backfill the gaps instead of the grid keeping empty squares. */
+  .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);grid-auto-flow:dense;grid-auto-rows:1fr;}
   .grid-slot{position:relative;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
   .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}

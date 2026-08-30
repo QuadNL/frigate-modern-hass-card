@@ -39,6 +39,9 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
+        <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
+          ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
+        </select>
         ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
@@ -58,6 +61,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
       .ce,.cn{flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
       .ce{min-width:0;} .cn{min-width:0;}
+      .cs{padding:7px 4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff;color:#111;flex-shrink:0;}
       .xb{padding:5px 8px;border:1px solid #f87171;background:#fee2e2;color:#b91c1c;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{padding:6px 12px;border:1px solid #93c5fd;background:rgba(59,130,246,.1);color:#3b82f6;border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
       .tf{width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
@@ -150,7 +154,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
@@ -212,10 +216,15 @@ export class FrigateModernHassCardEditor extends HTMLElement {
 
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
-    return rows.map(r => ({
-      entity: r.querySelector('[data-cam-entity]')?.value || '',
-      name: r.querySelector('[data-cam-name]')?.value || '',
-    }));
+    return rows.map(r => {
+      const span = Number(r.querySelector('[data-cam-span]')?.value || 1);
+      return {
+        entity: r.querySelector('[data-cam-entity]')?.value || '',
+        name: r.querySelector('[data-cam-name]')?.value || '',
+        // Only carry a size when it is not the default, to keep configs clean.
+        ...(span > 1 ? { span } : {}),
+      };
+    });
   }
   _u() {
     const g = id => this.querySelector('#'+id)?.value?.trim() || '';

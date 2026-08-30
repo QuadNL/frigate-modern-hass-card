@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0-dev.10';
+export const VERSION = '1.3.0-dev.11';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -50,6 +50,17 @@ export const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3
 export function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
 export const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// A camera's size in grid cells. Accepts a number (square, e.g. 2 for 2x2) or
+// {cols, rows}. Clamped so a typo cannot produce a grid nothing else fits in.
+export function normSpan(span) {
+  const clamp = v => Math.max(1, Math.min(4, Math.round(Number(v) || 1)));
+  if (typeof span === 'number' || typeof span === 'string') {
+    const v = clamp(span);
+    return { cols: v, rows: v };
+  }
+  if (span && typeof span === 'object') return { cols: clamp(span.cols), rows: clamp(span.rows) };
+  return { cols: 1, rows: 1 };
+}
 export function mkCamState() { return { clientId:'frigate', cam:'', events:[], recordings:[], reviews:[], kept:[], discovered:false }; }
 export function camDisplayName(c) { return c.name || (c.entity||'').replace(/^camera\./,'').replace(/_/g,' '); }
 

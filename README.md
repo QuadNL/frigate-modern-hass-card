@@ -73,7 +73,7 @@ default_view: single     # or 'grid'
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `camera_entity` | string | — | Single camera entity (shorthand) |
-| `cameras` | list | — | List of `{entity, name}` objects |
+| `cameras` | list | — | List of `{entity, name, span}` objects. `span` makes a camera occupy several tiles |
 | `title` | string | — | Card title |
 | `subtitle` | string | — | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |
@@ -89,6 +89,26 @@ default_view: single     # or 'grid'
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
+
+### Grid layout
+
+A camera can take up more than one tile, which is how you get a large camera with
+smaller ones around it rather than a uniform matrix:
+
+```yaml
+grid_columns: 3
+cameras:
+  - entity: camera.front_door
+    span: 2          # 2x2 tiles
+  - entity: camera.garden
+  - entity: camera.shed
+  - entity: camera.drive
+  - entity: camera.back
+```
+
+`span` accepts a number for a square, or `{cols: 2, rows: 1}` for a wide tile. A
+span wider than the grid is reduced to fit, so the same configuration still works
+when the column count drops on a phone.
 
 ## Low-latency live view with go2rtc
 

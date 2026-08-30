@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.10';
+const VERSION = '1.3.0-dev.11';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -50,6 +50,17 @@ const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#e
 function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
 const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// A camera's size in grid cells. Accepts a number (square, e.g. 2 for 2x2) or
+// {cols, rows}. Clamped so a typo cannot produce a grid nothing else fits in.
+function normSpan(span) {
+  const clamp = v => Math.max(1, Math.min(4, Math.round(Number(v) || 1)));
+  if (typeof span === 'number' || typeof span === 'string') {
+    const v = clamp(span);
+    return { cols: v, rows: v };
+  }
+  if (span && typeof span === 'object') return { cols: clamp(span.cols), rows: clamp(span.rows) };
+  return { cols: 1, rows: 1 };
+}
 function mkCamState() { return { clientId:'frigate', cam:'', events:[], recordings:[], reviews:[], kept:[], discovered:false }; }
 function camDisplayName(c) { return c.name || (c.entity||'').replace(/^camera\./,'').replace(/_/g,' '); }
 
@@ -150,7 +161,9 @@ const STYLES = `
   /* ── camera grid ── */
   /* Column count comes from --grid-cols, set inline by _mountGrid, so any
      number of cameras works without a rule per count. */
-  .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);}
+  /* dense so a camera spanning several cells does not leave holes behind it:
+     later tiles backfill the gaps instead of the grid keeping empty squares. */
+  .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);grid-auto-flow:dense;grid-auto-rows:1fr;}
   .grid-slot{position:relative;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
   .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
@@ -1079,9 +1092,9 @@ class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span) }));
     else if (config.camera_entity)
-      cameras = [{ entity:config.camera_entity, name:config.title||null }];
+      cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
 
     this._config = {
@@ -1561,8 +1574,17 @@ class FrigateModernHassCard extends HTMLElement {
     const grid = this.shadowRoot.querySelector('#cam-grid'); if (!grid) return;
     const n = this._config.cameras.length;
     const cols = this._gridColumns(n);
-    const rows = Math.ceil(n / cols);
-    const slots = cols * rows;       // remainder becomes placeholders
+    // A camera may occupy more than one cell, which is what gives the
+    // asymmetric layouts (one large with smaller ones around it). A span wider
+    // than the grid is clamped, so the same config still works when the column
+    // count drops on a phone.
+    const spans = this._config.cameras.map(c => ({
+      cols: Math.min(c.span?.cols || 1, cols),
+      rows: c.span?.rows || 1,
+    }));
+    const cells = spans.reduce((sum, sp) => sum + sp.cols * sp.rows, 0);
+    const rows = Math.max(1, Math.ceil(cells / cols));
+    const slots = cols * rows;       // leftover cells become placeholders
     grid.className = `cam-grid cams-${n}${rows > 1 ? ' multi-row' : ''}${cols === 1 ? ' stacked' : ''}`;
     grid.style.setProperty('--grid-cols', cols);
     grid.style.setProperty('--grid-rows', rows);
@@ -1572,11 +1594,16 @@ class FrigateModernHassCard extends HTMLElement {
     this._gridSeq = (this._gridSeq || 0) + 1;
     const gridToken = this._gridSeq;
     this._gridToken = gridToken;
-    for (let i = 0; i < slots; i++) {
+    // Cameras first, then placeholders for whatever cells are left over.
+    const total = n + Math.max(0, slots - cells);
+    for (let i = 0; i < total; i++) {
       const slot = document.createElement('div');
       const isPlaceholder = i >= n;
       slot.className = `grid-slot${isPlaceholder ? ' placeholder' : ''}`;
       if (!isPlaceholder) {
+        const sp = spans[i];
+        if (sp.cols > 1) slot.style.gridColumn = `span ${sp.cols}`;
+        if (sp.rows > 1) slot.style.gridRow = `span ${sp.rows}`;
         const c = this._config.cameras[i];
         const name = cap(camDisplayName(c));
         // stream — go2rtc when configured (one WebSocket per tile is far
@@ -2766,6 +2793,9 @@ class FrigateModernHassCardEditor extends HTMLElement {
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
+        <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
+          ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
+        </select>
         ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
@@ -2785,6 +2815,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
       .ce,.cn{flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
       .ce{min-width:0;} .cn{min-width:0;}
+      .cs{padding:7px 4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff;color:#111;flex-shrink:0;}
       .xb{padding:5px 8px;border:1px solid #f87171;background:#fee2e2;color:#b91c1c;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{padding:6px 12px;border:1px solid #93c5fd;background:rgba(59,130,246,.1);color:#3b82f6;border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
       .tf{width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
@@ -2877,7 +2908,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
@@ -2938,10 +2969,15 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
-    return rows.map(r => ({
-      entity: r.querySelector('[data-cam-entity]')?.value || '',
-      name: r.querySelector('[data-cam-name]')?.value || '',
-    }));
+    return rows.map(r => {
+      const span = Number(r.querySelector('[data-cam-span]')?.value || 1);
+      return {
+        entity: r.querySelector('[data-cam-entity]')?.value || '',
+        name: r.querySelector('[data-cam-name]')?.value || '',
+        // Only carry a size when it is not the default, to keep configs clean.
+        ...(span > 1 ? { span } : {}),
+      };
+    });
   }
   _u() {
     const g = id => this.querySelector('#'+id)?.value?.trim() || '';
