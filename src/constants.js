@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.1.0-dev.2';
+export const VERSION = '1.1.0-dev.3';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
