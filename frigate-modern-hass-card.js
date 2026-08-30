@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.6';
+const VERSION = '1.3.0-dev.7';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -138,11 +138,6 @@ const STYLES = `
   .btn{display:inline-flex;align-items:center;gap:5px;background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .btn svg{width:14px;height:14px;}
 
-  /* ── stream controls (inline in info-row, consistent in single + grid mode) ── */
-  .scb-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:8px;cursor:pointer;flex-shrink:0;}
-  .scb-btn:hover{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
-  .scb-btn svg{width:15px;height:15px;}
-
   /* ── camera grid ── */
   /* Column count comes from --grid-cols, set inline by _mountGrid, so any
      number of cameras works without a rule per count. */
@@ -191,8 +186,10 @@ const STYLES = `
   .card.mobile .cam-grid.multi-row:not(.stacked) .grid-slot { aspect-ratio:unset; min-height:0; }
 
   /* ── info row ── */
-  .info-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:10px 16px 8px;border-bottom:1px solid var(--c-border);}
-  .stream-ctrl-bar{display:flex;align-items:center;justify-content:center;gap:6px;}
+  .info-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:10px 16px 8px;border-bottom:1px solid var(--c-border);}
+  /* Sits in the timeline toolbar, so it inherits that spacing and its buttons
+     use the same .tool style as the ones beside it. */
+  .stream-ctrl-bar{display:flex;align-items:center;gap:4px;}
   .info-title{font-size:14px;font-weight:700;color:var(--c-text);} .info-sub{font-size:11px;color:var(--c-text3);margin-top:1px;}
   .stats{display:flex;gap:16px;justify-self:end;} .stat{display:flex;flex-direction:column;align-items:flex-end;}
   .sv{font-size:14px;font-weight:700;color:#93c5fd;} .sl{font-size:10px;color:var(--c-text4);text-transform:uppercase;letter-spacing:.06em;}
@@ -329,8 +326,6 @@ const STYLES = `
   .rec-dl-btn{padding:4px 11px;background:rgba(59,130,246,.45);border:1px solid rgba(59,130,246,.7);color:#fff;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;}
   .rec-dl-btn:hover{background:rgba(59,130,246,.75);}
 
-  /* ── stream control active state (zone toggle when on) ── */
-  .scb-btn.active{background:var(--c-acc-bg)!important;border-color:var(--c-acc-bdr)!important;color:var(--c-acc)!important;}
 `;
 
 // ── editor ───────────────────────────────────────────────────
@@ -1612,10 +1607,10 @@ class FrigateModernHassCard extends HTMLElement {
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    const fs = inGrid ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
+    const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
-    const events = `<button class="scb-btn" id="sc-events"></button>`;
+    const events = `<button class="tool" id="sc-events"></button>`;
     bar.innerHTML = `${fs}${events}`;
     this._applyEventsCollapsed();
   }
@@ -1815,6 +1810,7 @@ class FrigateModernHassCard extends HTMLElement {
               <div class="tl-head">
                 <span class="section-label" id="tl-range">—</span>
                 <div class="tl-tools">
+                  <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
                   <button class="tool" id="now-btn" title="Jump to now">⟳</button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
@@ -1829,7 +1825,6 @@ class FrigateModernHassCard extends HTMLElement {
             <!-- info: sits below timeline in col-left -->
             <div class="info-row">
               <div><div class="info-title" id="info-title">${title}</div><div class="info-sub">${sub}</div></div>
-              <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
               <div class="stats">
                 <div class="stat"><div class="sv" id="ev-count">—</div><div class="sl">Events</div></div>
                 <div class="stat"><div class="sv" id="on-dot" style="color:#4ade80">●</div><div class="sl" id="on-lbl">Online</div></div>

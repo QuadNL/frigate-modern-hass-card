@@ -574,10 +574,10 @@ export class FrigateModernHassCard extends HTMLElement {
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    const fs = inGrid ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
+    const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
-    const events = `<button class="scb-btn" id="sc-events"></button>`;
+    const events = `<button class="tool" id="sc-events"></button>`;
     bar.innerHTML = `${fs}${events}`;
     this._applyEventsCollapsed();
   }
@@ -777,6 +777,7 @@ export class FrigateModernHassCard extends HTMLElement {
               <div class="tl-head">
                 <span class="section-label" id="tl-range">—</span>
                 <div class="tl-tools">
+                  <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
                   <button class="tool" id="now-btn" title="Jump to now">⟳</button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
@@ -791,7 +792,6 @@ export class FrigateModernHassCard extends HTMLElement {
             <!-- info: sits below timeline in col-left -->
             <div class="info-row">
               <div><div class="info-title" id="info-title">${title}</div><div class="info-sub">${sub}</div></div>
-              <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
               <div class="stats">
                 <div class="stat"><div class="sv" id="ev-count">—</div><div class="sl">Events</div></div>
                 <div class="stat"><div class="sv" id="on-dot" style="color:#4ade80">●</div><div class="sl" id="on-lbl">Online</div></div>
