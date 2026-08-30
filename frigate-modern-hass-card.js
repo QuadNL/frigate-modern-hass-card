@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.12';
+const VERSION = '1.3.0-dev.13';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2822,6 +2822,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
     const opts = (sel) => entityList.map(e => `<option value="${e}" ${e===sel?'selected':''}>${e}</option>`).join('');
 
+    const layoutId = this._config?.grid_layout || 'auto';
+    const usingLayout = layoutId !== 'auto';
     const camRows = cams.map((c,i) => `
       <div class="cr" data-row="${i}">
         <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
@@ -2841,8 +2843,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
     </label>`;
 
-    const layoutId = this._config?.grid_layout || 'auto';
-    const usingLayout = layoutId !== 'auto';
     const defaultView = this._config?.default_view || 'single';
     const rotateOnLoad = this._config?.rotate_on_load === true;
     const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);

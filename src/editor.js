@@ -32,6 +32,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
 
     const opts = (sel) => entityList.map(e => `<option value="${e}" ${e===sel?'selected':''}>${e}</option>`).join('');
 
+    const layoutId = this._config?.grid_layout || 'auto';
+    const usingLayout = layoutId !== 'auto';
     const camRows = cams.map((c,i) => `
       <div class="cr" data-row="${i}">
         <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
@@ -51,8 +53,6 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
     </label>`;
 
-    const layoutId = this._config?.grid_layout || 'auto';
-    const usingLayout = layoutId !== 'auto';
     const defaultView = this._config?.default_view || 'single';
     const rotateOnLoad = this._config?.rotate_on_load === true;
     const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
