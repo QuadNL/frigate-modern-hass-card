@@ -2998,11 +2998,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <div class="section">
         <span class="field-label">Smallest tile</span>
         <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="200" ${String(this._config?.min_tile_width||200)==='200'?'checked':''}> Comfortable</label>
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="150" ${String(this._config?.min_tile_width)==='150'?'checked':''}> Compact</label>
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="110" ${String(this._config?.min_tile_width)==='110'?'checked':''}> Dense</label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="200" ${String(this._config?.min_tile_width||200)==='200'?'checked':''}> Comfortable <small style="color:#9ca3af">200px</small></label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="150" ${String(this._config?.min_tile_width)==='150'?'checked':''}> Compact <small style="color:#9ca3af">150px</small></label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="110" ${String(this._config?.min_tile_width)==='110'?'checked':''}> Dense <small style="color:#9ca3af">110px</small></label>
         </div>
-        <small style="color:#6b7280;font-size:11px">Decides when the grid gives up a column, so it is what makes a phone stack the cameras. Pick a denser setting to keep two columns on a phone, at the cost of smaller pictures.</small>
+        <small style="color:#6b7280;font-size:11px">How narrow a tile may get before the grid drops a column. A phone is about 390px wide, so Comfortable gives it one column, Compact two and Dense three. A chosen layout is still the upper limit.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
