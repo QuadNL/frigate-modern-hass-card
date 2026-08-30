@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.5';
+const VERSION = '1.3.0-dev.6';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -102,10 +102,13 @@ const STYLES = `
   /* Widths rather than flex so the events panel can be slid away: both sides
      animate, the cameras take over the space instead of being covered by an
      overlay. */
-  .card.wide .col-left{width:58%;flex-shrink:0;transition:width .28s ease;}
-  .card.wide .col-right{width:42%;flex-shrink:0;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);transition:width .28s ease,opacity .18s ease;}
-  .card.wide.events-collapsed .col-left{width:100%;}
-  .card.wide.events-collapsed .col-right{width:0;opacity:0;overflow:hidden;border-left-color:transparent;}
+  /* The stream column takes whatever is left, so the events panel can both be
+     capped and animate away without leaving a gap. An event row needs about
+     400px; beyond that the rows just stretch and the cameras lose width for
+     nothing. */
+  .card.wide .col-left{flex:1 1 auto;min-width:0;}
+  .card.wide .col-right{width:42%;max-width:400px;flex:0 0 auto;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);transition:width .28s ease,max-width .28s ease,opacity .18s ease;}
+  .card.wide.events-collapsed .col-right{width:0;max-width:0;opacity:0;overflow:hidden;border-left-color:transparent;}
   /* Narrow layouts already have the browse toggle for this. */
   .card:not(.wide) #sc-events{display:none;}
   .card.events-collapsed #sc-events{color:var(--c-text3);}
