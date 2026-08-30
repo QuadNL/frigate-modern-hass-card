@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0-dev.6';
+const VERSION = '1.1.0';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -1030,11 +1030,12 @@ class FrigateModernHassCard extends HTMLElement {
     } else {
       const url = await this._resolveClipUrl(ev.id);
       slot.innerHTML = `
-        <video src="${url}" controls autoplay playsinline muted
+        <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
         <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
+      this._playMedia(slot.querySelector('video'));
     }
   }
 
@@ -1078,6 +1079,22 @@ class FrigateModernHassCard extends HTMLElement {
       return url;
     }
   }
+  // Clips and recordings are played deliberately, so they should be audible.
+  // Browsers may still refuse to start unmuted playback (autoplay policy — the
+  // user gesture can be lost across the awaits needed to resolve a signed URL,
+  // notably on iOS). In that case retry muted rather than not playing at all;
+  // the user can unmute from the native controls.
+  async _playMedia(vid) {
+    if (!vid?.play) return;
+    try {
+      await vid.play();
+    } catch (err) {
+      if (err?.name === 'NotAllowedError' && !vid.muted) {
+        vid.muted = true;
+        try { await vid.play(); } catch (_) { /* give up quietly */ }
+      }
+    }
+  }
   _media(id,file,dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl?'?download=true':''}`; }
   // Same HLS route the Home Assistant media browser uses to play this event
   // (custom_components/frigate/media_source.py: vod/event/<id>/index.m3u8).
@@ -1099,7 +1116,8 @@ class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(ev.id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    this._playMedia(viewer.querySelector('video'));
   }
   async _showClipById(id) {
     if(!id) return;
@@ -1109,7 +1127,8 @@ class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls autoplay muted playsinline></video>`;
+    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    this._playMedia(viewer.querySelector('video'));
   }
   async _showSnapshot(ev) {
     this._enter(); this._playing={id:ev.id};
@@ -1137,11 +1156,11 @@ class FrigateModernHassCard extends HTMLElement {
       : '';
     // No native `controls` — we show our own bar so the browser can't display
     // the wrong file duration (Frigate proxy may serve the full segment file).
-    viewer.innerHTML=`<video src="${url}" autoplay muted playsinline></video>${fromLbl}
+    viewer.innerHTML=`<video src="${url}" playsinline></video>${fromLbl}
       <div class="rec-dl-bar">
         <div class="rec-ctl-row">
           <button class="rec-pp-btn">⏸</button>
-          <button class="rec-mute-btn" title="Unmute">${ICONS.volOff}</button>
+          <button class="rec-mute-btn" title="Mute">${ICONS.volOn}</button>
           <span class="rec-ctl-time">0:00 / ${this._fmtDurS(clipDur)}</span>
           <input type="range" class="rec-prog" min="0" max="${clipDur}" value="0" step="1">
         </div>
@@ -1168,6 +1187,16 @@ class FrigateModernHassCard extends HTMLElement {
         if (dlTime) dlTime.textContent = this._time(start + t);
         // stop playback at clip end (file may be longer than the clip window)
         if (vid.currentTime >= clipDur) { vid.pause(); vid.currentTime = clipDur; }
+      });
+    }
+    if (vid) {
+      // Start playback and sync the custom mute button with what actually
+      // happened — playback may have fallen back to muted.
+      this._playMedia(vid).then(() => {
+        if (muteBtn) {
+          muteBtn.innerHTML = vid.muted ? ICONS.volOff : ICONS.volOn;
+          muteBtn.title = vid.muted ? 'Unmute' : 'Mute';
+        }
       });
     }
     if (ppBtn && vid) ppBtn.addEventListener('click', () => { vid.paused ? vid.play() : vid.pause(); });
