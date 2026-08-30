@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.0.2';
+const VERSION = '1.1.0-dev.1';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -334,7 +334,7 @@ class FrigateModernHassCard extends HTMLElement {
     this._engine = null; this._unsub = null;
     this._rotateTimer = null; this._cardWidth = 0;
     this._playSeq = 0;
-    this._streamMuted = true; // start muted; user can toggle via our mute button
+    this._streamMuted = true; // initial live-view mute state; never changed after mount (see _mountEngine)
     this._showReviewed = false; // reviews: hide reviewed by default
     this._domCache = {}; // querySelector result cache — cleared on re-render
   }
@@ -457,7 +457,15 @@ class FrigateModernHassCard extends HTMLElement {
     const s = document.createElement('ha-camera-stream');
     s.hass = this._hass;
     s.stateObj = stateObj;
-    s.controls = false; // we provide our own control bar
+    // Native player controls (mute/volume/fullscreen) instead of our own bar.
+    // `muted` is set ONCE here and never changed afterwards — it is a Lit
+    // reactive property that HA uses internally to pick between its HLS and
+    // WebRTC players, so toggling it could swap the whole player mid-stream
+    // (and WebRTC permanently drops the audio track if it connects muted).
+    // That reactive tug-of-war was the cause of the unreliable mute button
+    // (#6). Native controls write straight to the <video> DOM node, outside
+    // Lit's render cycle, so there is nothing left to fight over.
+    s.controls = true;
     s.muted = this._streamMuted;
     s.style.cssText = 'width:100%;height:100%;display:block';
     slot.innerHTML = ''; slot.appendChild(s);
@@ -580,18 +588,15 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── custom stream controls ────────────────────────────────
+  // Single view uses the player's own native controls for mute and fullscreen.
+  // Grid slots can't (their streams are pointer-events:none so slot clicks
+  // still select the camera), so those keep the card's fullscreen button.
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    const muteBtn = !inGrid
-      ? `<button class="scb-btn" id="sc-mute" title="${this._streamMuted ? 'Unmute' : 'Mute'}">${this._streamMuted ? ICONS.volOff : ICONS.volOn}</button>`
+    bar.innerHTML = inGrid
+      ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`
       : '';
-    bar.innerHTML = `${muteBtn}<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`;
-  }
-  _toggleStreamMute() {
-    this._streamMuted = !this._streamMuted;
-    if (this._engine) this._engine.muted = this._streamMuted;
-    this._renderStreamCtrl();
   }
 
   // ── view mode ─────────────────────────────────────────────
@@ -923,7 +928,6 @@ class FrigateModernHassCard extends HTMLElement {
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#back')) return this._showLive();
-    if (e.target.closest('#sc-mute')) return this._toggleStreamMute();
     if (e.target.closest('#sc-fs')) {
       const target = this._viewMode === 'grid'
         ? this.shadowRoot.querySelector('#cam-grid')
