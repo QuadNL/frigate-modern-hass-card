@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.13';
+const VERSION = '1.3.0-dev.14';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2824,14 +2824,27 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
     const layoutId = this._config?.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
+    // Offering a layout with fewer tiles than there are cameras is just wrong,
+    // so hide those. If nothing is big enough, show everything rather than an
+    // empty picker.
+    const fitting = GRID_LAYOUTS.filter(l => l.id === 'auto' || l.tiles >= cams.length);
+    const layoutChoices = fitting.length > 1 ? fitting : GRID_LAYOUTS;
+    // The tile number leads the row: you read "tile 1 shows this camera", which
+    // is the direction people think in. Arrows move a camera between tiles,
+    // since the list order is what decides position.
     const camRows = cams.map((c,i) => `
       <div class="cr" data-row="${i}">
+        <span class="cnum" title="Tile ${i+1} in the grid">${i+1}</span>
+        <div class="cmv">
+          <button class="mv" data-move-cam="${i}" data-dir="-1" ${i===0?'disabled':''} title="Move up">&#9650;</button>
+          <button class="mv" data-move-cam="${i}" data-dir="1" ${i===cams.length-1?'disabled':''} title="Move down">&#9660;</button>
+        </div>
         <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
           <option value="">— select camera —</option>
           ${opts(c.entity||'')}
         </select>
         <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
-        ${usingLayout ? `<span class="cnum" title="Position in the chosen layout">${i+1}</span>` : `
+        ${usingLayout ? '' : `
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
         </select>`}
@@ -2861,6 +2874,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
       .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:#374151;}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+      .cmv{display:flex;flex-direction:column;gap:1px;flex-shrink:0;}
+      .mv{width:18px;height:12px;padding:0;line-height:1;font-size:8px;border:1px solid #d1d5db;background:#fff;color:#6b7280;border-radius:3px;cursor:pointer;}
+      .mv:hover:not(:disabled){border-color:#93c5fd;color:#3b82f6;}
+      .mv:disabled{opacity:.3;cursor:default;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3b82f6;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;font-weight:700;}
       .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
       .lay{padding:6px 5px 5px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
@@ -2876,8 +2893,15 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <div>
         <span class="field-label">Cameras ${frigEntities.length ? '<small style="font-weight:400;color:#6b7280">· Frigate cameras detected</small>' : ''}</span>
         <div id="cam-list">${camRows}</div>
-        <button class="add-btn" id="add-cam">+ Add camera</button>
-        ${cams.length > 4 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Every camera in the grid streams at once — more cameras means more load on the browser and on Frigate.</small>' : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button class="add-btn" id="add-cam">+ Add camera</button>
+          <button class="add-btn" id="toggle-layout">Grid layout${usingLayout ? `: ${findLayout(layoutId)?.label || ''}` : ''}</button>
+        </div>
+        ${cams.length > 4 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
+        <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
+          <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
+          <small style="color:#6b7280;font-size:11px">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
+        </div>
       </div>
 
       <label><span class="field-label">Title (optional)</span>
@@ -2887,6 +2911,29 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <input name="subtitle" class="tf" id="subtitle" type="text" value="${this._config?.subtitle||''}" placeholder="Frigate">
       </label>
 
+      <div class="section">
+        <span class="field-label">View</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
+          <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
+        </div>
+        <div style="margin-top:8px">
+          <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
+        </div>
+        <div style="margin-top:6px">
+          <label><span style="font-size:11px;color:#6b7280">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
+            <input name="rotate_seconds" class="tf" id="rotate_seconds" type="number" value="${this._config?.rotate_seconds??0}" min="0" style="margin-top:3px">
+          </label>
+        </div>
+      </div>
+      <div class="section">
+        <span class="field-label">Theme</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="theme" value="dark"  ${(this._config?.theme||'dark')==='dark' ?'checked':''}> Dark</label>
+          <label class="radio-lbl"><input type="radio" name="theme" value="light" ${this._config?.theme==='light'?'checked':''}> Light</label>
+          <label class="radio-lbl"><input type="radio" name="theme" value="auto"  ${this._config?.theme==='auto' ?'checked':''}> Auto (browser)</label>
+        </div>
+      </div>
       <div class="section">
         <span class="field-label">Colors</span>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
@@ -2913,31 +2960,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
-        <span class="field-label">Theme</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="theme" value="dark"  ${(this._config?.theme||'dark')==='dark' ?'checked':''}> Dark</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="light" ${this._config?.theme==='light'?'checked':''}> Light</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="auto"  ${this._config?.theme==='auto' ?'checked':''}> Auto (browser)</label>
-        </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">View</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
-          <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
-        </div>
-        <div style="margin-top:8px">
-          <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
-        </div>
-        <div style="margin-top:6px">
-          <label><span style="font-size:11px;color:#6b7280">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
-            <input name="rotate_seconds" class="tf" id="rotate_seconds" type="number" value="${this._config?.rotate_seconds??0}" min="0" style="margin-top:3px">
-          </label>
-        </div>
-      </div>
-
-      <div class="section">
         <span class="field-label">Hidden tabs</span>
         <div class="chk-grid">
           ${tabCheck('recordings','Recordings')}
@@ -2946,12 +2968,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
           ${tabCheck('reviews','Reviews')}
           ${tabCheck('kept','Kept')}
         </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Grid layout</span>
-        <div class="lay-grid">${GRID_LAYOUTS.map(l => this._layoutButton(l, layoutId)).join('')}</div>
-        <small style="color:#6b7280;font-size:11px">The numbers show which camera lands where: the first camera in the list above goes in tile 1, and so on. A layout sets both the columns and the tile sizes.</small>
       </div>
 
       <div class="section" ${usingLayout ? 'style="display:none"' : ''}>
@@ -2989,11 +3005,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
       </div>
 
       <div class="section">
-        <span class="field-label">Stream height limit (vh)</span>
+        <span class="field-label">Maximum camera height</span>
         <input name="stream_height" class="tf" id="stream_height" type="number"
           value="${this._config?.stream_height||''}" min="20" max="100"
-          placeholder="70 = grid default, blank = auto">
-        <small style="color:#6b7280;font-size:11px">Grid view defaults to 70vh. Set here to override for both views.</small>
+          placeholder="e.g. 70, blank = automatic">
+        <small style="color:#6b7280;font-size:11px">As a percentage of the screen height. Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
       </div>
 
       <div class="section">
@@ -3010,6 +3026,18 @@ class FrigateModernHassCardEditor extends HTMLElement {
     this.querySelectorAll('[data-remove-cam]').forEach(b => b.addEventListener('click', e => {
       const cur = this._getCams(); cur.splice(Number(e.currentTarget.dataset.removeCam), 1);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
+    }));
+    this.querySelector('#toggle-layout')?.addEventListener('click', () => {
+      this._layoutOpen = !this._layoutOpen; this._render();
+    });
+    this.querySelectorAll('[data-move-cam]').forEach(b => b.addEventListener('click', e2 => {
+      const from = Number(e2.currentTarget.dataset.moveCam);
+      const to = from + Number(e2.currentTarget.dataset.dir);
+      const cur = this._getCams();
+      if (to < 0 || to >= cur.length) return;
+      [cur[from], cur[to]] = [cur[to], cur[from]];
+      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
+      this._render(); this._dispatch();
     }));
     this.querySelectorAll('[data-layout]').forEach(b => b.addEventListener('click', () => {
       this._config = { ...this._config, grid_layout: b.dataset.layout };
