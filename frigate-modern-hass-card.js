@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.1.0-dev.3';
+const VERSION = '1.1.0-dev.4';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -584,18 +584,16 @@ class FrigateModernHassCard extends HTMLElement {
         const lbl = document.createElement('div');
         lbl.className = 'grid-label'; lbl.textContent = name;
         slot.appendChild(lbl);
-        // click → set as active cam for the events list; stay in grid
-        // guard: buttons inside the slot handle their own action; don't also switch camera
+        // Click → open this camera in single view (_switchCamera switches the
+        // view mode itself). Leave wall-display fullscreen first, otherwise we
+        // would land on a single view stuck behind a fullscreened grid.
+        // Guard: buttons inside the slot handle their own action (a clip played
+        // in-slot renders its own close/fullscreen buttons); don't also switch.
         slot.addEventListener('click', ev => {
           if (ev.target.closest('.grid-fs-btn,.grid-close-btn,[data-restore-slot]')) return;
+          this._exitFullscreen();
           this._switchCamera(i); this._renderCamSwitcher();
         });
-        // per-slot fullscreen button (appears on hover)
-        const fsBtn = document.createElement('button');
-        fsBtn.className = 'grid-fs-btn'; fsBtn.title = 'Fullscreen';
-        fsBtn.innerHTML = ICONS.expand;
-        fsBtn.addEventListener('click', ev => { ev.stopPropagation(); this._fullscreen(slot); });
-        slot.appendChild(fsBtn);
       }
       grid.appendChild(slot);
     }
@@ -979,9 +977,6 @@ class FrigateModernHassCard extends HTMLElement {
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
     const slotFs = e.target.closest('[data-slot-fs]');
     if (slotFs) { e.stopPropagation(); this._fullscreen(slotFs.closest('.grid-slot')); return; }
-    // whole-grid fullscreen
-    const gridFs = e.target.closest('[data-grid-fs]');
-    if (gridFs) { e.stopPropagation(); this._fullscreen(this.shadowRoot.querySelector('#cam-grid')); return; }
     const card = e.target.closest('[data-ev]'); if (card) {
       if (this._viewMode === 'grid') {
         this._openInGridSlot(card.dataset.ev);
@@ -1248,8 +1243,19 @@ class FrigateModernHassCard extends HTMLElement {
     }
     return null;
   }
+  _exitFullscreen() {
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => {}); }
+  }
   _fullscreen(el) {
     if (!el) return;
+    // Toggle: a second press leaves fullscreen. Without this the button was a
+    // one-way trip and users had to reach for Escape.
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      this._exitFullscreen();
+      return;
+    }
     // iPhone Safari/WKWebView: Element.requestFullscreen may exist as a function
     // but silently no-ops/rejects — document.fullscreenEnabled is the real signal.
     // Only native fullscreen on the <video> element itself works there.
