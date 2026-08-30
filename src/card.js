@@ -196,7 +196,11 @@ export class FrigateModernHassCard extends HTMLElement {
       if (done) return;
       done = true;
       el.classList.add('shown');
-      setTimeout(() => slot.querySelector('.engine-hold')?.remove(), 320);
+      const hold = slot.querySelector('.engine-hold');
+      if (hold) {
+        hold.classList.add('out');
+        setTimeout(() => hold.remove(), 600);
+      }
     };
     const vid = this._findVideo(el, 0);
     if (vid) {

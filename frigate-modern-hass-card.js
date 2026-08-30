@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.8';
+const VERSION = '1.3.0-dev.9';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -127,9 +127,12 @@ const STYLES = `
   #engine.zooming{transition:none;}
   #engine:not(.zooming){transition:transform .15s ease-out;}
   #engine ha-camera-stream,#engine ha-hls-player,#engine frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  /* The outgoing camera's last frame, held while the next one connects. */
-  .engine-hold{position:absolute;inset:0;background:var(--c-bg-deep) center/contain no-repeat;z-index:0;}
-  #engine .engine-player{position:relative;z-index:1;opacity:0;transition:opacity .3s ease;}
+  /* The outgoing camera's last frame, held while the next one connects, then
+     dissolved out as the new stream comes up. Both sides animate so the change
+     reads as one movement rather than a swap. */
+  .engine-hold{position:absolute;inset:0;background:var(--c-bg-deep) center/contain no-repeat;z-index:0;opacity:1;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
+  .engine-hold.out{opacity:0;}
+  #engine .engine-player{position:relative;z-index:1;opacity:0;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
   #engine .engine-player.shown{opacity:1;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
@@ -1233,7 +1236,11 @@ class FrigateModernHassCard extends HTMLElement {
       if (done) return;
       done = true;
       el.classList.add('shown');
-      setTimeout(() => slot.querySelector('.engine-hold')?.remove(), 320);
+      const hold = slot.querySelector('.engine-hold');
+      if (hold) {
+        hold.classList.add('out');
+        setTimeout(() => hold.remove(), 600);
+      }
     };
     const vid = this._findVideo(el, 0);
     if (vid) {
