@@ -106,6 +106,10 @@ export class FrigateModernHassCard extends HTMLElement {
 
   // ── init ─────────────────────────────────────────────────
   async _start() {
+    // Before any awaits: the layout classes decide the stream's size, and
+    // without them the card renders 16:9 across its full width — briefly
+    // enormous on a wide dashboard.
+    this._setupResizeObserver();
     await this._discoverAll();
     const now = Math.floor(Date.now()/1000);
     this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
@@ -119,7 +123,6 @@ export class FrigateModernHassCard extends HTMLElement {
     this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
     const shouldRotate = this._config.rotate_on_load || this._config.rotate_seconds > 0;
     if (shouldRotate && this._config.cameras.length > 1) this._startRotate();
-    this._setupResizeObserver();
   }
 
   // Discover all cameras in parallel for faster startup
@@ -184,15 +187,18 @@ export class FrigateModernHassCard extends HTMLElement {
       `/api/frigate/${clientId}/mse/api/ws${query}`,
     ];
     for (const path of paths) {
-      const ok = await this._tryGo2rtcPath(slot, token, path);
+      const { ok, routeWorks } = await this._tryGo2rtcPath(slot, token, path);
       if (this._engineSeq !== token) return true; // superseded, nothing to do
       if (ok) return true;
+      // The socket opened but the stream never played: this proxy route is
+      // fine, so the other one won't help. Go straight to the HLS fallback.
+      if (routeWorks) return false;
     }
     return false;
   }
   async _tryGo2rtcPath(slot, token, path) {
     const src = await this._signed(path);
-    if (this._engineSeq !== token) return false;
+    if (this._engineSeq !== token) return { ok: false, routeWorks: false };
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block';
@@ -208,16 +214,31 @@ export class FrigateModernHassCard extends HTMLElement {
     this._engine = player;
     this._renderStreamCtrl();
 
-    const started = await new Promise(resolve => {
+    // Two separate questions, and conflating them was a bug: does this proxy
+    // route exist (did the socket open?), and does the stream actually play?
+    // A blind timeout tore down connections that were merely slow to start —
+    // cameras that take a while to come up never got the chance, and go2rtc's
+    // own reconnect logic never got to run either.
+    const SOCKET_MS = 4000;   // route unusable if the socket never opens
+    const PLAY_MS = 15000;    // generous: cold cameras can take a while
+    const result = await new Promise(resolve => {
       let done = false;
-      const finish = ok => { if (!done) { done = true; resolve(ok); } };
-      player.video?.addEventListener('playing', () => finish(true), { once: true });
-      setTimeout(() => finish(false), 5000);
+      const finish = r => { if (!done) { done = true; clearInterval(poll); resolve(r); } };
+      const onPlaying = () => finish({ ok: true, routeWorks: true });
+      player.video?.addEventListener('playing', onPlaying, { once: true });
+      player.video?.addEventListener('loadeddata', onPlaying, { once: true });
+      const started = Date.now();
+      const poll = setInterval(() => {
+        const elapsed = Date.now() - started;
+        const socketOpen = player.wsState === WebSocket.OPEN || player.pcState === WebSocket.OPEN;
+        if (!socketOpen && elapsed > SOCKET_MS) finish({ ok: false, routeWorks: false });
+        else if (elapsed > PLAY_MS) finish({ ok: false, routeWorks: true });
+      }, 250);
     });
-    if (this._engineSeq !== token) return false;
-    if (started) return true;
+    if (this._engineSeq !== token) return { ok: false, routeWorks: true };
+    if (result.ok) return result;
     this._teardownGo2rtc();
-    return false;
+    return result;
   }
   _teardownGo2rtc() {
     const p = this._go2rtcPlayer;
@@ -671,6 +692,7 @@ export class FrigateModernHassCard extends HTMLElement {
   }
 
   _setupResizeObserver() {
+    if (this._ro) return;
     this._ro = new ResizeObserver(entries => {
       const w = entries[0].contentRect.width;
       this._cardWidth = w;
