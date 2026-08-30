@@ -69,6 +69,10 @@ export class FrigateModernHassCard extends HTMLElement {
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
         ? 'auto' : Math.max(1, Math.min(6, Number(config.grid_columns) || 1)),
+      // How narrow a tile may get before a column is dropped. This is what
+      // decides whether a phone stacks the cameras, so it belongs with the
+      // column settings rather than with the fixed sizes.
+      min_tile_width: config.min_tile_width ? Math.max(80, Number(config.min_tile_width)) : null,
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
       // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
       // travel through Home Assistant's proxy — it connects straight to

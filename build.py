@@ -56,6 +56,28 @@ def check_methods(source):
 
 
 
+def check_config_options(source):
+    """Catch an editor setting that setConfig throws away.
+
+    setConfig copies the config into a whitelist, so an option the editor writes
+    but setConfig does not list is accepted in the UI, saved to YAML, and then
+    silently ignored by the card. min_tile_width shipped that way: the setting
+    looked fine and did nothing.
+    """
+    marker = 'this._config = {' + chr(10)
+    if marker not in source:
+        return
+    block = source.split(marker, 1)[1].split(chr(10) + '    };', 1)[0]
+    accepted = set(re.findall(r'^\s{6}(\w+):', block, re.M))
+    accepted |= {'cameras', 'camera_entity', 'entity'}  # entity belongs to a camera row
+    written = set(re.findall(r'c\.(\w+)\s*=', source))
+    written |= set(re.findall(r'delete c\.(\w+)', source))
+    missing = sorted(written - accepted)
+    if missing:
+        print('ERROR: the editor writes options setConfig ignores: ' + ', '.join(missing))
+        sys.exit(1)
+
+
 def beta_stamp():
     """Next build number, counting up across runs. Kept out of git."""
     n = 0
@@ -94,6 +116,7 @@ def bundle(beta=False):
     joined = '\n\n'.join(parts) + '\n'
 
     check_methods(joined)
+    check_config_options(joined)
 
     out = OUTPUT
     if beta:
