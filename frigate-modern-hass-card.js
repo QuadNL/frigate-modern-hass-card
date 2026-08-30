@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.2.0-dev.1';
+const VERSION = '1.2.0-dev.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
@@ -1179,15 +1179,33 @@ class FrigateModernHassCard extends HTMLElement {
   // Live view via Frigate's built-in go2rtc (WebRTC/MSE): far lower latency
   // than HLS, and lighter on the browser. Reached through the Frigate
   // integration's own proxy, so no separate go2rtc URL or port is needed and
-  // it works through HA auth — including the companion apps. The path must be
-  // signed: a WebSocket cannot send auth headers.
-  // Returns true when go2rtc is playing (or was superseded), false to fall back.
+  // it works through HA auth — including the companion apps.
+  //
+  // Frigate deprecated the /mse/ proxy path in favour of /go2rtc/ws/ (the MSE
+  // *protocol* is unaffected — it's the route that changed). The new path
+  // needs Frigate integration v5.12.0+, so try it first and fall back to the
+  // old one for older installs rather than making users work out which of the
+  // two their setup supports. On Frigate 0.18+ both resolve to the same
+  // upstream anyway.
+  // Returns true when go2rtc is playing (or was superseded), false to fall back to HLS.
   async _mountGo2rtc(slot, token) {
     const { clientId, cam } = this._cc();
     if (!clientId || !cam) return false;
-    const path = `/api/frigate/${clientId}/mse/api/ws?src=${encodeURIComponent(cam)}`;
+    const query = `?src=${encodeURIComponent(cam)}`;
+    const paths = [
+      `/api/frigate/${clientId}/go2rtc/ws/api/ws${query}`,
+      `/api/frigate/${clientId}/mse/api/ws${query}`,
+    ];
+    for (const path of paths) {
+      const ok = await this._tryGo2rtcPath(slot, token, path);
+      if (this._engineSeq !== token) return true; // superseded, nothing to do
+      if (ok) return true;
+    }
+    return false;
+  }
+  async _tryGo2rtcPath(slot, token, path) {
     const src = await this._signed(path);
-    if (this._engineSeq !== token) return true;
+    if (this._engineSeq !== token) return false;
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block';
@@ -1207,9 +1225,9 @@ class FrigateModernHassCard extends HTMLElement {
       let done = false;
       const finish = ok => { if (!done) { done = true; resolve(ok); } };
       player.video?.addEventListener('playing', () => finish(true), { once: true });
-      setTimeout(() => finish(false), 6000);
+      setTimeout(() => finish(false), 5000);
     });
-    if (this._engineSeq !== token) return true;
+    if (this._engineSeq !== token) return false;
     if (started) return true;
     this._teardownGo2rtc();
     return false;
