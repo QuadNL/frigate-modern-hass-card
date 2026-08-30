@@ -74,8 +74,10 @@ export const STYLES = `
      dissolved out as the new stream comes up. Both sides animate so the change
      reads as one movement rather than a swap. */
   .engine-hold{position:absolute;inset:0;background:var(--c-bg-deep) center/contain no-repeat;z-index:0;opacity:1;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
+  .engine-hold.dim{opacity:.35;}
   .engine-hold.out{opacity:0;}
-  #engine .engine-player{position:relative;z-index:1;opacity:0;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
+  .engine-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:1;pointer-events:none;}
+  #engine .engine-player{position:relative;z-index:2;opacity:0;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
   #engine .engine-player.shown{opacity:1;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}

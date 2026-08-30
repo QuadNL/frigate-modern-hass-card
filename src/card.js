@@ -185,6 +185,13 @@ export class FrigateModernHassCard extends HTMLElement {
     hold.className = 'engine-hold';
     hold.style.backgroundImage = `url(${frame})`;
     slot.insertAdjacentElement('afterbegin', hold);
+    const wait = document.createElement('div');
+    wait.className = 'engine-wait';
+    wait.innerHTML = '<div class="ph-spin"></div>';
+    slot.insertAdjacentElement('afterbegin', wait);
+    // Dim the held frame straight away. Left at full strength it just looks
+    // like the picture froze, with no sign anything is happening.
+    requestAnimationFrame(() => hold.classList.add('dim'));
   }
   // Reveal the player once it actually has picture, then drop the held frame.
   // The timeout is a safety net: without it a stream that never reports playing
@@ -196,8 +203,10 @@ export class FrigateModernHassCard extends HTMLElement {
       if (done) return;
       done = true;
       el.classList.add('shown');
+      slot.querySelector('.engine-wait')?.remove();
       const hold = slot.querySelector('.engine-hold');
       if (hold) {
+        hold.classList.remove('dim');
         hold.classList.add('out');
         setTimeout(() => hold.remove(), 600);
       }
@@ -264,7 +273,7 @@ export class FrigateModernHassCard extends HTMLElement {
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block';
-    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.querySelectorAll(':scope > :not(.engine-hold):not(.engine-wait)').forEach(n => n.remove());
     slot.appendChild(player); // creates its <video> synchronously
     // Upstream's player starts unmuted and only mutes if autoplay is refused;
     // mute before connecting so the live view is never unexpectedly audible.
@@ -414,7 +423,7 @@ export class FrigateModernHassCard extends HTMLElement {
     s.controls = true;
     s.muted = true;
     s.style.cssText = 'width:100%;height:100%;display:block';
-    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.querySelectorAll(':scope > :not(.engine-hold):not(.engine-wait)').forEach(n => n.remove());
     slot.appendChild(s);
     this._engine = s;
     this._fadeInPlayer(slot, s);

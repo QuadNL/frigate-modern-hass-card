@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.9';
+const VERSION = '1.3.0-dev.10';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -131,8 +131,10 @@ const STYLES = `
      dissolved out as the new stream comes up. Both sides animate so the change
      reads as one movement rather than a swap. */
   .engine-hold{position:absolute;inset:0;background:var(--c-bg-deep) center/contain no-repeat;z-index:0;opacity:1;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
+  .engine-hold.dim{opacity:.35;}
   .engine-hold.out{opacity:0;}
-  #engine .engine-player{position:relative;z-index:1;opacity:0;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
+  .engine-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:1;pointer-events:none;}
+  #engine .engine-player{position:relative;z-index:2;opacity:0;transition:opacity .55s cubic-bezier(.4,0,.2,1);}
   #engine .engine-player.shown{opacity:1;}
   .viewer{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:4;}
   .viewer video,.viewer img.snap{width:100%;height:100%;object-fit:contain;background:#000;}
@@ -1225,6 +1227,13 @@ class FrigateModernHassCard extends HTMLElement {
     hold.className = 'engine-hold';
     hold.style.backgroundImage = `url(${frame})`;
     slot.insertAdjacentElement('afterbegin', hold);
+    const wait = document.createElement('div');
+    wait.className = 'engine-wait';
+    wait.innerHTML = '<div class="ph-spin"></div>';
+    slot.insertAdjacentElement('afterbegin', wait);
+    // Dim the held frame straight away. Left at full strength it just looks
+    // like the picture froze, with no sign anything is happening.
+    requestAnimationFrame(() => hold.classList.add('dim'));
   }
   // Reveal the player once it actually has picture, then drop the held frame.
   // The timeout is a safety net: without it a stream that never reports playing
@@ -1236,8 +1245,10 @@ class FrigateModernHassCard extends HTMLElement {
       if (done) return;
       done = true;
       el.classList.add('shown');
+      slot.querySelector('.engine-wait')?.remove();
       const hold = slot.querySelector('.engine-hold');
       if (hold) {
+        hold.classList.remove('dim');
         hold.classList.add('out');
         setTimeout(() => hold.remove(), 600);
       }
@@ -1304,7 +1315,7 @@ class FrigateModernHassCard extends HTMLElement {
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block';
-    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.querySelectorAll(':scope > :not(.engine-hold):not(.engine-wait)').forEach(n => n.remove());
     slot.appendChild(player); // creates its <video> synchronously
     // Upstream's player starts unmuted and only mutes if autoplay is refused;
     // mute before connecting so the live view is never unexpectedly audible.
@@ -1454,7 +1465,7 @@ class FrigateModernHassCard extends HTMLElement {
     s.controls = true;
     s.muted = true;
     s.style.cssText = 'width:100%;height:100%;display:block';
-    slot.querySelectorAll(':scope > :not(.engine-hold)').forEach(n => n.remove());
+    slot.querySelectorAll(':scope > :not(.engine-hold):not(.engine-wait)').forEach(n => n.remove());
     slot.appendChild(s);
     this._engine = s;
     this._fadeInPlayer(slot, s);
