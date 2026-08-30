@@ -17,6 +17,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // UI
     this._tab = 'live'; this._playing = null;
     this._browseOpen = false;
+    this._eventsCollapsed = false; // wide layout only; narrow uses the browse toggle
     this._winEnd = 0; this._winStart = 0;
     this._loading = false; this._exhausted = false;
     this._daysWithActivity = new Set();
@@ -59,6 +60,8 @@ export class FrigateModernHassCard extends HTMLElement {
       // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
+      // Start with the events panel slid away, for a camera-first dashboard.
+      events_collapsed: config.events_collapsed === true,
       // Grid columns: 'auto' works one out from the camera count, or pin a
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
@@ -74,6 +77,7 @@ export class FrigateModernHassCard extends HTMLElement {
       go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
+    this._eventsCollapsed = this._config.events_collapsed;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
     this._renderShell();
   }
@@ -570,9 +574,25 @@ export class FrigateModernHassCard extends HTMLElement {
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    bar.innerHTML = inGrid
-      ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`
-      : '';
+    const fs = inGrid ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
+    // Only meaningful in the wide layout, where the events panel sits beside the
+    // cameras. CSS hides it when narrow, since there the browse toggle does this.
+    const events = `<button class="scb-btn" id="sc-events" title="Show or hide events">${ICONS.chevron}</button>`;
+    bar.innerHTML = `${fs}${events}`;
+    this._applyEventsCollapsed();
+  }
+  _applyEventsCollapsed() {
+    const card = this.shadowRoot.querySelector('.card'); if (!card) return;
+    card.classList.toggle('events-collapsed', this._eventsCollapsed);
+    const btn = this.shadowRoot.querySelector('#sc-events');
+    if (btn) btn.title = this._eventsCollapsed ? 'Show events' : 'Hide events';
+  }
+  _toggleEvents() {
+    this._eventsCollapsed = !this._eventsCollapsed;
+    this._applyEventsCollapsed();
+    // The stream column changes width, so the height the events column is
+    // matched to changes with it. Re-measure once the animation has settled.
+    setTimeout(() => { if (this._cardWidth >= 560) this._syncColHeight(); }, 320);
   }
 
   // ── view mode ─────────────────────────────────────────────
@@ -868,6 +888,7 @@ export class FrigateModernHassCard extends HTMLElement {
       card.classList.toggle('wide', wide);
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
+      this._applyEventsCollapsed();
       if (wide) this._syncColHeight();
       // Crossing a width where the automatic column count changes (rotating a
       // phone, resizing a window) needs the grid rebuilt: the number of
@@ -923,6 +944,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#cal-btn')) return this._toggleCal();
     if (e.target.closest('#now-btn')) return this._goNow();
     if (e.target.closest('#browse-toggle')) return this._toggleBrowse();
+    if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
     if (e.target.closest('[data-mark-all]')) return this._markAll();
     if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed=!this._showReviewed; this._renderList(); return; }

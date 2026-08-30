@@ -42,8 +42,17 @@ export const STYLES = `
      col-right max-height is set dynamically by JS to match col-left.offsetHeight
      so the events panel never makes the card taller than the stream side. */
   .card.wide .layout{flex-direction:row;align-items:flex-start;}
-  .card.wide .col-left{width:58%;flex-shrink:0;}
-  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);}
+  /* Widths rather than flex so the events panel can be slid away: both sides
+     animate, the cameras take over the space instead of being covered by an
+     overlay. */
+  .card.wide .col-left{width:58%;flex-shrink:0;transition:width .28s ease;}
+  .card.wide .col-right{width:42%;flex-shrink:0;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);transition:width .28s ease,opacity .18s ease;}
+  .card.wide.events-collapsed .col-left{width:100%;}
+  .card.wide.events-collapsed .col-right{width:0;opacity:0;overflow:hidden;border-left-color:transparent;}
+  /* Narrow layouts already have the browse toggle for this. */
+  .card:not(.wide) #sc-events{display:none;}
+  #sc-events svg{transition:transform .28s ease;transform:rotate(90deg);}
+  .card.events-collapsed #sc-events svg{transform:rotate(-90deg);}
   /* Cap stream height so a full-width section doesn't produce an 800px stream.
      User can override via stream_height config. */
   .card.wide #eng-wrap{max-height:var(--stream-h,55vh);}

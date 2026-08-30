@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.3';
+const VERSION = '1.3.0-dev.4';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -95,8 +95,17 @@ const STYLES = `
      col-right max-height is set dynamically by JS to match col-left.offsetHeight
      so the events panel never makes the card taller than the stream side. */
   .card.wide .layout{flex-direction:row;align-items:flex-start;}
-  .card.wide .col-left{width:58%;flex-shrink:0;}
-  .card.wide .col-right{flex:1;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);}
+  /* Widths rather than flex so the events panel can be slid away: both sides
+     animate, the cameras take over the space instead of being covered by an
+     overlay. */
+  .card.wide .col-left{width:58%;flex-shrink:0;transition:width .28s ease;}
+  .card.wide .col-right{width:42%;flex-shrink:0;min-width:0;overflow-y:auto;border-left:1px solid var(--c-border);transition:width .28s ease,opacity .18s ease;}
+  .card.wide.events-collapsed .col-left{width:100%;}
+  .card.wide.events-collapsed .col-right{width:0;opacity:0;overflow:hidden;border-left-color:transparent;}
+  /* Narrow layouts already have the browse toggle for this. */
+  .card:not(.wide) #sc-events{display:none;}
+  #sc-events svg{transition:transform .28s ease;transform:rotate(90deg);}
+  .card.events-collapsed #sc-events svg{transform:rotate(-90deg);}
   /* Cap stream height so a full-width section doesn't produce an 800px stream.
      User can override via stream_height config. */
   .card.wide #eng-wrap{max-height:var(--stream-h,55vh);}
@@ -1040,6 +1049,7 @@ class FrigateModernHassCard extends HTMLElement {
     // UI
     this._tab = 'live'; this._playing = null;
     this._browseOpen = false;
+    this._eventsCollapsed = false; // wide layout only; narrow uses the browse toggle
     this._winEnd = 0; this._winStart = 0;
     this._loading = false; this._exhausted = false;
     this._daysWithActivity = new Set();
@@ -1082,6 +1092,8 @@ class FrigateModernHassCard extends HTMLElement {
       // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
       // (WebRTC/MSE) for much lower latency; it falls back to the standard
       // Home Assistant stream if it can't connect.
+      // Start with the events panel slid away, for a camera-first dashboard.
+      events_collapsed: config.events_collapsed === true,
       // Grid columns: 'auto' works one out from the camera count, or pin a
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
@@ -1097,6 +1109,7 @@ class FrigateModernHassCard extends HTMLElement {
       go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
+    this._eventsCollapsed = this._config.events_collapsed;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
     this._renderShell();
   }
@@ -1593,9 +1606,25 @@ class FrigateModernHassCard extends HTMLElement {
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
-    bar.innerHTML = inGrid
-      ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`
-      : '';
+    const fs = inGrid ? `<button class="scb-btn" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
+    // Only meaningful in the wide layout, where the events panel sits beside the
+    // cameras. CSS hides it when narrow, since there the browse toggle does this.
+    const events = `<button class="scb-btn" id="sc-events" title="Show or hide events">${ICONS.chevron}</button>`;
+    bar.innerHTML = `${fs}${events}`;
+    this._applyEventsCollapsed();
+  }
+  _applyEventsCollapsed() {
+    const card = this.shadowRoot.querySelector('.card'); if (!card) return;
+    card.classList.toggle('events-collapsed', this._eventsCollapsed);
+    const btn = this.shadowRoot.querySelector('#sc-events');
+    if (btn) btn.title = this._eventsCollapsed ? 'Show events' : 'Hide events';
+  }
+  _toggleEvents() {
+    this._eventsCollapsed = !this._eventsCollapsed;
+    this._applyEventsCollapsed();
+    // The stream column changes width, so the height the events column is
+    // matched to changes with it. Re-measure once the animation has settled.
+    setTimeout(() => { if (this._cardWidth >= 560) this._syncColHeight(); }, 320);
   }
 
   // ── view mode ─────────────────────────────────────────────
@@ -1891,6 +1920,7 @@ class FrigateModernHassCard extends HTMLElement {
       card.classList.toggle('wide', wide);
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
+      this._applyEventsCollapsed();
       if (wide) this._syncColHeight();
       // Crossing a width where the automatic column count changes (rotating a
       // phone, resizing a window) needs the grid rebuilt: the number of
@@ -1946,6 +1976,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#cal-btn')) return this._toggleCal();
     if (e.target.closest('#now-btn')) return this._goNow();
     if (e.target.closest('#browse-toggle')) return this._toggleBrowse();
+    if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
     if (e.target.closest('[data-mark-all]')) return this._markAll();
     if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed=!this._showReviewed; this._renderList(); return; }
@@ -2770,7 +2801,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">Automatic picks a column count from the number of cameras. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <small style="color:#6b7280;font-size:11px">Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <div style="margin-top:8px">
+          <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
+          <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
+        </div>
       </div>
 
       <div class="section">
@@ -2861,6 +2896,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.hidden_tabs = hidden.length ? hidden : [];
     const sh = this.querySelector('#stream_height')?.value;
     c.stream_height = sh ? Number(sh) : null;
+    c.events_collapsed = this.querySelector('#events_collapsed')?.checked === true;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
