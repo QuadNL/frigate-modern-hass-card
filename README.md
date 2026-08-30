@@ -87,6 +87,7 @@ default_view: single     # or 'grid'
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
 | `grid_layout` | string | `auto` | Named layout, see below. Sets the columns and tile sizes together |
 | `grid_columns` | string/number | `auto` | Grid columns: `auto`, or `1`–`6`. Use `1` to stack cameras vertically |
+| `min_tile_width` | number | `200` | Narrowest a grid tile may get, in pixels, before the grid drops a column |
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
@@ -119,7 +120,13 @@ grid_layout: 6-big   # one large camera with five smaller ones
 | `10-big` | Two large plus eight |
 
 Layouts scale down: on a phone the columns reduce and the large tiles shrink with
-them, so one configuration works on every screen.
+them, so one configuration works on every screen. A phone usually ends up with a
+single column. If you would rather keep two, lower the point at which a column is
+dropped:
+
+```yaml
+min_tile_width: 110   # default 200
+```
 
 If none of them fit, build your own with `grid_columns` and a `span` per camera.
 `span` takes a number for a square or `{cols: 2, rows: 1}` for a wide tile:

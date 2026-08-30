@@ -1587,12 +1587,20 @@ class FrigateModernHassCard extends HTMLElement {
     const id = this._config.grid_layout;
     return id && id !== 'auto' ? findLayout(id) : null;
   }
+  // How narrow a tile may get before the grid drops a column. Configurable
+  // because it is the one number that decides when a phone stacks: lower it and
+  // two columns survive on a phone, raise it and even a tablet stacks.
+  _minTilePx() {
+    const v = Number(this._config.min_tile_width);
+    return v > 0 ? Math.max(80, v) : MIN_TILE_PX;
+  }
   _gridColumns(n) {
     const layout = this._activeLayout();
+    const min = this._minTilePx();
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;
-      return w ? Math.max(1, Math.min(layout.cols, Math.floor(w / MIN_TILE_PX))) : layout.cols;
+      return w ? Math.max(1, Math.min(layout.cols, Math.floor(w / min))) : layout.cols;
     }
     const cfg = this._config.grid_columns;
     if (cfg && cfg !== 'auto') return cfg;
@@ -1601,7 +1609,7 @@ class FrigateModernHassCard extends HTMLElement {
     // phone showing seven cameras got three columns of ~100px tiles; the count
     // alone says nothing about how much room there actually is.
     const width = this._cardWidth || this.offsetWidth || 0;
-    if (width) cols = Math.max(1, Math.min(cols, Math.floor(width / MIN_TILE_PX)));
+    if (width) cols = Math.max(1, Math.min(cols, Math.floor(width / min)));
     return cols;
   }
   async _mountGrid() {
@@ -1616,7 +1624,12 @@ class FrigateModernHassCard extends HTMLElement {
     const spans = this._config.cameras.map((c, i) => {
       const preset = layout?.spans?.[i];
       const want = preset ? { cols: preset[0], rows: preset[1] } : (layout ? { cols: 1, rows: 1 } : c.span || { cols: 1, rows: 1 });
-      return { cols: Math.min(want.cols || 1, cols), rows: want.rows || 1 };
+      const wc = want.cols || 1, wr = want.rows || 1;
+      const fit = Math.min(wc, cols);
+      // Shrink the height by as much as the width had to shrink, or a tile that
+      // wanted 3x3 keeps three rows in a single column and leaves two empty
+      // screens below the video.
+      return { cols: fit, rows: Math.max(1, Math.round(wr * (fit / wc))) };
     });
     const cells = spans.reduce((sum, sp) => sum + sp.cols * sp.rows, 0);
     const rows = Math.max(1, Math.ceil(cells / cols));
@@ -1630,8 +1643,10 @@ class FrigateModernHassCard extends HTMLElement {
     this._gridSeq = (this._gridSeq || 0) + 1;
     const gridToken = this._gridSeq;
     this._gridToken = gridToken;
-    // Cameras first, then placeholders for whatever cells are left over.
-    const total = n + Math.max(0, slots - cells);
+    // Cameras first, then placeholders for whatever cells are left over. In a
+    // single column there is no shape to preserve, so an empty tile would just
+    // be a gap in a list.
+    const total = n + (cols === 1 ? 0 : Math.max(0, slots - cells));
     for (let i = 0; i < total; i++) {
       const slot = document.createElement('div');
       const isPlaceholder = i >= n;
@@ -2974,6 +2989,16 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
         <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+      </div>
+
+      <div class="section">
+        <span class="field-label">Smallest tile</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="200" ${String(this._config?.min_tile_width||200)==='200'?'checked':''}> Comfortable</label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="150" ${String(this._config?.min_tile_width)==='150'?'checked':''}> Compact</label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="110" ${String(this._config?.min_tile_width)==='110'?'checked':''}> Dense</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">Decides when the grid gives up a column, so it is what makes a phone stack the cameras. Pick a denser setting to keep two columns on a phone, at the cost of smaller pictures.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
@@ -3122,6 +3147,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
+    const mt = Number(this.querySelector('input[name="min_tile_width"]:checked')?.value || 200);
+    if (mt === 200) delete c.min_tile_width; else c.min_tile_width = mt;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();

@@ -184,6 +184,16 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
         <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+      </div>
+
+      <div class="section">
+        <span class="field-label">Smallest tile</span>
+        <div class="radio-row">
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="200" ${String(this._config?.min_tile_width||200)==='200'?'checked':''}> Comfortable</label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="150" ${String(this._config?.min_tile_width)==='150'?'checked':''}> Compact</label>
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="110" ${String(this._config?.min_tile_width)==='110'?'checked':''}> Dense</label>
+        </div>
+        <small style="color:#6b7280;font-size:11px">Decides when the grid gives up a column, so it is what makes a phone stack the cameras. Pick a denser setting to keep two columns on a phone, at the cost of smaller pictures.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
@@ -333,6 +343,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
+    const mt = Number(this.querySelector('input[name="min_tile_width"]:checked')?.value || 200);
+    if (mt === 200) delete c.min_tile_width; else c.min_tile_width = mt;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();
