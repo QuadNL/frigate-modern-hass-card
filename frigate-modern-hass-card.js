@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-preview.2';
+const VERSION = '1.3.0-dev.25';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -66,12 +66,12 @@ const GRID_LAYOUTS = [
   { id: '2-row', label: '2 stacked', tiles: 2, cols: 1, spans: [] },
   { id: '2-col', label: '2 side by side', tiles: 2, cols: 2, spans: [] },
   { id: '3-big', label: '1 large + 2', tiles: 3, cols: 3, spans: [[2, 2]] },
-  { id: '4',     label: '4 equal', tiles: 4, cols: 2, spans: [] },
+  { id: '4',     label: '2 x 2', tiles: 4, cols: 2, spans: [] },
   { id: '6-big', label: '1 large + 5', tiles: 6, cols: 3, spans: [[2, 2]] },
   { id: '8-big', label: '1 large + 7', tiles: 8, cols: 4, spans: [[3, 3]] },
-  { id: '9',     label: '9 equal', tiles: 9, cols: 3, spans: [] },
+  { id: '9',     label: '3 x 3', tiles: 9, cols: 3, spans: [] },
   { id: '10-big',label: '2 large + 8', tiles: 10, cols: 4, spans: [[2, 2], [2, 2]] },
-  { id: '16',    label: '16 equal', tiles: 16, cols: 4, spans: [] },
+  { id: '16',    label: '4 x 4', tiles: 16, cols: 4, spans: [] },
 ];
 function findLayout(id) { return GRID_LAYOUTS.find(l => l.id === id) || null; }
 
@@ -1477,6 +1477,16 @@ class FrigateModernHassCard extends HTMLElement {
     (this._gridPlayers || []).forEach(p => this._stopGo2rtcPlayer(p));
     this._gridPlayers = [];
   }
+  // Hiding the grid does not stop it. Every tile holds its own connection, so a
+  // hidden grid of seven cameras keeps seven streams running while the single
+  // view tries to start an eighth, and that one is the one you are waiting for.
+  // Emptying the element also disconnects the ha-hls-player instances.
+  _teardownGrid() {
+    this._teardownGridGo2rtc();
+    const grid = this.shadowRoot.querySelector('#cam-grid');
+    if (grid) grid.innerHTML = '';
+    this._gridCols = 0;
+  }
   _teardownGo2rtc() {
     const p = this._go2rtcPlayer;
     if (!p) return;
@@ -1810,7 +1820,10 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── view mode ─────────────────────────────────────────────
-  _setViewMode(mode) {
+  // mount:false is for a caller that will mount the engine itself, so clicking a
+  // camera in the grid does not first start the previously active camera and
+  // then immediately tear it down again.
+  _setViewMode(mode, opts = {}) {
     this._viewMode = mode;
     const card = this.shadowRoot.querySelector('.card');
     if (card) card.classList.toggle('grid-mode', mode === 'grid');
@@ -1828,8 +1841,9 @@ class FrigateModernHassCard extends HTMLElement {
     } else {
       if (engWrap) engWrap.style.display = '';
       if (gridEl) gridEl.style.display = 'none';
+      this._teardownGrid();
       this._eventsMode = 'camera';
-      this._mountEngine();
+      if (opts.mount !== false) this._mountEngine();
       this._renderAll();
     }
     this._renderCamSwitcher();
@@ -1842,7 +1856,7 @@ class FrigateModernHassCard extends HTMLElement {
   async _switchCamera(idx) {
     if (idx === this._activeCamIdx && this._viewMode === 'single') return;
     // Clicking a cam tab while in grid mode switches to single view of that camera
-    if (this._viewMode === 'grid') this._setViewMode('single');
+    if (this._viewMode === 'grid') this._setViewMode('single', { mount: false });
     const prevEnt = this._activeCam?.entity;
     if (prevEnt && this._camCache[prevEnt]) {
       this._camCache[prevEnt].events = this._events;
@@ -1851,12 +1865,16 @@ class FrigateModernHassCard extends HTMLElement {
     this._activeCamIdx = idx;
     const newEnt = this._activeCam?.entity;
     if (!this._camCache[newEnt]) this._camCache[newEnt] = mkCamState();
+    // Start the stream before waiting on anything else. The picture is what the
+    // user is waiting for; discovery is a round trip that only the events list
+    // needs.
+    const mounting = this._mountEngine();
     if (!this._camCache[newEnt].discovered) await this._discoverOne(newEnt);
     const cached = this._camCache[newEnt];
     this._events = cached.events||[]; this._recordings = cached.recordings||[];
     this._reviews = cached.reviews||[]; this._kept = cached.kept||[];
     this._renderCamSwitcher(); this._syncStatus();
-    await this._mountEngine();
+    await mounting;
     this._renderAll();
     await this._loadWindow(true);
   }

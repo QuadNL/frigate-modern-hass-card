@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0-preview.2';
+export const VERSION = '1.3.0-dev.26';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -66,12 +66,12 @@ export const GRID_LAYOUTS = [
   { id: '2-row', label: '2 stacked', tiles: 2, cols: 1, spans: [] },
   { id: '2-col', label: '2 side by side', tiles: 2, cols: 2, spans: [] },
   { id: '3-big', label: '1 large + 2', tiles: 3, cols: 3, spans: [[2, 2]] },
-  { id: '4',     label: '4 equal', tiles: 4, cols: 2, spans: [] },
+  { id: '4',     label: '2 x 2', tiles: 4, cols: 2, spans: [] },
   { id: '6-big', label: '1 large + 5', tiles: 6, cols: 3, spans: [[2, 2]] },
   { id: '8-big', label: '1 large + 7', tiles: 8, cols: 4, spans: [[3, 3]] },
-  { id: '9',     label: '9 equal', tiles: 9, cols: 3, spans: [] },
+  { id: '9',     label: '3 x 3', tiles: 9, cols: 3, spans: [] },
   { id: '10-big',label: '2 large + 8', tiles: 10, cols: 4, spans: [[2, 2], [2, 2]] },
-  { id: '16',    label: '16 equal', tiles: 16, cols: 4, spans: [] },
+  { id: '16',    label: '4 x 4', tiles: 16, cols: 4, spans: [] },
 ];
 export function findLayout(id) { return GRID_LAYOUTS.find(l => l.id === id) || null; }
 
