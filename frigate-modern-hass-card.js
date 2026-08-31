@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.25';
+const VERSION = '1.3.0-dev.26';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -278,6 +278,9 @@ const STYLES = `
   .tl-tools{display:flex;gap:4px;}
   .tool{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:7px;padding:4px 7px;cursor:pointer;}
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
+  /* Labelled tool: the view switch is worth reading, not just recognising. */
+  .tool-txt{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;font-size:11px;font-weight:600;}
+  .tool.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .tl-track{position:relative;height:30px;background:var(--c-bg-panel);border-radius:6px;overflow:hidden;cursor:grab;touch-action:pan-y;}
   .tl-track.grab{cursor:grabbing;}
   .tl-track::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12));}
@@ -1795,11 +1798,18 @@ class FrigateModernHassCard extends HTMLElement {
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
+    // Switching between one camera and all of them is a view control, so it
+    // belongs with fullscreen and the events panel. It used to sit in the row of
+    // camera tabs, where it read as another camera and was easy to miss. Labelled
+    // rather than an icon alone, for the same reason.
+    const grid = this._config.cameras.length > 1
+      ? `<button class="tool tool-txt${inGrid ? ' on' : ''}" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
+      : '';
     const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
-    bar.innerHTML = `${fs}${events}`;
+    bar.innerHTML = `${grid}${fs}${events}`;
     this._applyEventsCollapsed();
   }
   _applyEventsCollapsed() {
@@ -1837,7 +1847,6 @@ class FrigateModernHassCard extends HTMLElement {
       const lbl = this.shadowRoot.querySelector('#list-label');
       if (lbl) lbl.textContent = 'All cameras';
       this._loadAllCamsBackground().then(() => this._renderAll());
-      this._renderStreamCtrl(); // hide mute button in grid mode
     } else {
       if (engWrap) engWrap.style.display = '';
       if (gridEl) gridEl.style.display = 'none';
@@ -1846,6 +1855,7 @@ class FrigateModernHassCard extends HTMLElement {
       if (opts.mount !== false) this._mountEngine();
       this._renderAll();
     }
+    this._renderStreamCtrl();
     this._renderCamSwitcher();
     this._applyBrowse();
     this.shadowRoot.querySelectorAll('[data-viewmode]').forEach(p =>
@@ -2158,14 +2168,14 @@ class FrigateModernHassCard extends HTMLElement {
       const ok = this._hass?.states[c.entity]?.state !== 'unavailable';
       return `<button class="cam-tab ${active?'active':''}" data-camidx="${i}"><span class="cam-dot" style="color:${ok?'#4ade80':'#ef4444'}">●</span> ${name}</button>`;
     }).join('');
-    const gridActive = this._viewMode === 'grid';
-    el.innerHTML = `<div class="cam-tabs">${tabs}<button class="cam-tab${gridActive?' active':''}" data-viewmode="grid" title="All cameras">${ICONS.grid} Multiview</button></div>
+    el.innerHTML = `<div class="cam-tabs">${tabs}</div>
       <button class="cam-rotate ${this._rotateTimer?'on':''}" id="rotate-btn" title="Auto-rotate">${ICONS.rotate}</button>`;
   }
 
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#back')) return this._showLive();
+    if (e.target.closest('#sc-grid')) return this._setViewMode(this._viewMode === 'grid' ? 'single' : 'grid');
     if (e.target.closest('#sc-fs')) {
       const target = this._viewMode === 'grid'
         ? this.shadowRoot.querySelector('#cam-grid')
