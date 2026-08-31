@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.26';
+const VERSION = '1.3.0-dev.27';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -280,7 +280,6 @@ const STYLES = `
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
   /* Labelled tool: the view switch is worth reading, not just recognising. */
   .tool-txt{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;font-size:11px;font-weight:600;}
-  .tool.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .tl-track{position:relative;height:30px;background:var(--c-bg-panel);border-radius:6px;overflow:hidden;cursor:grab;touch-action:pan-y;}
   .tl-track.grab{cursor:grabbing;}
   .tl-track::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12));}
@@ -1802,8 +1801,10 @@ class FrigateModernHassCard extends HTMLElement {
     // belongs with fullscreen and the events panel. It used to sit in the row of
     // camera tabs, where it read as another camera and was easy to miss. Labelled
     // rather than an icon alone, for the same reason.
+    // The word is what the button does, never where you are. Highlighting it as
+    // well made it read as the mode you were already in, which is backwards.
     const grid = this._config.cameras.length > 1
-      ? `<button class="tool tool-txt${inGrid ? ' on' : ''}" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
+      ? `<button class="tool tool-txt" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
       : '';
     const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the

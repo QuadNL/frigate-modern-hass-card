@@ -719,8 +719,10 @@ export class FrigateModernHassCard extends HTMLElement {
     // belongs with fullscreen and the events panel. It used to sit in the row of
     // camera tabs, where it read as another camera and was easy to miss. Labelled
     // rather than an icon alone, for the same reason.
+    // The word is what the button does, never where you are. Highlighting it as
+    // well made it read as the mode you were already in, which is backwards.
     const grid = this._config.cameras.length > 1
-      ? `<button class="tool tool-txt${inGrid ? ' on' : ''}" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
+      ? `<button class="tool tool-txt" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
       : '';
     const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
