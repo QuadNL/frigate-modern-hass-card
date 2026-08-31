@@ -87,7 +87,8 @@ default_view: single     # or 'grid'
 | `hidden_tabs` | list | `[]` | Tabs to hide: `recordings`, `clips`, `snapshot`, `reviews`, `kept` |
 | `grid_layout` | string | `auto` | Named layout, see below. Sets the columns and tile sizes together |
 | `grid_columns` | string/number | `auto` | Grid columns: `auto`, or `1`–`6`. Use `1` to stack cameras vertically |
-| `min_tile_width` | number | `250` | Narrowest a grid tile may get, in pixels, before the grid drops a column |
+| `stack_on_mobile` | boolean | `true` | Show one camera per row on a phone, whatever the layout says |
+| `min_tile_width` | number | `200` | Narrowest a grid tile may get, in pixels, before the grid drops a column |
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
@@ -119,15 +120,19 @@ grid_layout: 6-big   # one large camera with five smaller ones
 | `8-big` | One large plus seven |
 | `10-big` | Two large plus eight |
 
-Layouts scale down: on a phone the columns reduce and the large tiles shrink with
-them, so one configuration works on every screen. A phone usually ends up with a
-single column, which is the point: two half width cameras on a phone are two
-cameras you cannot see. If you do want two, lower the width at which a column is
-dropped:
+Layouts scale down: the columns reduce and the large tiles shrink with them, so
+one configuration works on every screen.
+
+On a phone the cameras stack, one per row, whatever the layout says. A grid on a
+phone leaves every camera too small to see anything in. If you want the grid
+there anyway, for two cameras side by side or a small overview:
 
 ```yaml
-min_tile_width: 160   # default 250
+stack_on_mobile: false
 ```
+
+With stacking off, `min_tile_width` decides how narrow a tile may get before a
+column is dropped. Lower it for more columns on a small screen.
 
 If none of them fit, build your own with `grid_columns` and a `span` per camera.
 `span` takes a number for a square or `{cols: 2, rows: 1}` for a wide tile:

@@ -7,17 +7,18 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0-dev.21';
+export const VERSION = '1.3.0-dev.22';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
 // camera stops being watchable, so fewer columns are used instead.
-// Narrowest a grid tile may be before a column is dropped. 250 rather than 200
-// so that every phone gets one camera per row: an Android phone is 412 CSS px
-// wide, which at 200 gave two 200px tiles side by side. That is not a
-// compromise, it is two cameras you cannot see. Overridable per card with
-// min_tile_width for anyone who does want two.
-export const MIN_TILE_PX = 250;
+// Narrowest a grid tile may be before a column is dropped. Only a readability
+// floor: on a phone the stack_on_mobile setting decides, not this number.
+export const MIN_TILE_PX = 200;
+// A card narrower than this is a phone as far as the grid is concerned. Chosen
+// so every phone falls under it: an Android phone is 412 CSS px wide, the
+// largest iPhone 430.
+export const PHONE_PX = 500;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {

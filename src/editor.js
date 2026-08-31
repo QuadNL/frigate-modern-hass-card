@@ -183,20 +183,20 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
       </div>
 
       <div class="section">
-        <span class="field-label">Smallest tile</span>
-        <div class="radio-row">
-          ${[[250,'Comfortable'],[160,'Compact'],[110,'Dense']].map(([px,label]) => `
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="${px}" ${String(this._config?.min_tile_width||250)===String(px)?'checked':''}> ${label} <small style="color:#9ca3af">${px}px</small></label>`).join('')}
-        </div>
-        <small style="color:#6b7280;font-size:11px">How narrow a tile may get before the grid drops a column. With this setting a phone shows <b>${this._colsAt(420, cams.length)}</b> and a tablet <b>${this._colsAt(800, cams.length)}</b> per row. A chosen layout is still the upper limit.</small>
-        <div style="margin-top:8px">
-          <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
-          <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
-        </div>
+        <span class="field-label">On a phone</span>
+        <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> Stack the cameras, one per row</label>
+        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">A grid on a phone leaves every camera too small to see anything in, so this is on by default. Turn it off if you want the grid on a phone too, for two cameras side by side or a small overview.</small>
+      </div>
+
+      <div class="section">
+        <span class="field-label">Events panel</span>
+        <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
+        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
+      </div>
       </div>
 
       <div class="section">
@@ -281,7 +281,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
   // What the current settings produce at a given card width. The card does this
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 250;
+    if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
+    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols
@@ -355,8 +356,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
-    const mt = Number(this.querySelector('input[name="min_tile_width"]:checked')?.value || 200);
-    if (mt === 200) delete c.min_tile_width; else c.min_tile_width = mt;
+    c.stack_on_mobile = this.querySelector('#stack_on_mobile')?.checked !== false;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();

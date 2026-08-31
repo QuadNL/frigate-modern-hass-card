@@ -7,17 +7,18 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.20';
+const VERSION = '1.3.0-dev.22';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
 // camera stops being watchable, so fewer columns are used instead.
-// Narrowest a grid tile may be before a column is dropped. 250 rather than 200
-// so that every phone gets one camera per row: an Android phone is 412 CSS px
-// wide, which at 200 gave two 200px tiles side by side. That is not a
-// compromise, it is two cameras you cannot see. Overridable per card with
-// min_tile_width for anyone who does want two.
-const MIN_TILE_PX = 250;
+// Narrowest a grid tile may be before a column is dropped. Only a readability
+// floor: on a phone the stack_on_mobile setting decides, not this number.
+const MIN_TILE_PX = 200;
+// A card narrower than this is a phone as far as the grid is concerned. Chosen
+// so every phone falls under it: an Android phone is 412 CSS px wide, the
+// largest iPhone 430.
+const PHONE_PX = 500;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -1148,9 +1149,13 @@ class FrigateModernHassCard extends HTMLElement {
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
         ? 'auto' : Math.max(1, Math.min(6, Number(config.grid_columns) || 1)),
-      // How narrow a tile may get before a column is dropped. This is what
-      // decides whether a phone stacks the cameras, so it belongs with the
-      // column settings rather than with the fixed sizes.
+      // A grid on a phone is a row of pictures too small to see anything in, so
+      // it stacks by default. Off is for the deliberate case: two cameras side
+      // by side, or a small grid as an overview.
+      stack_on_mobile: config.stack_on_mobile !== false,
+      // Escape hatch for the width at which a column is dropped. Not in the
+      // editor: the stacking question is the one people actually have, and this
+      // is the answer to a rarer one.
       min_tile_width: config.min_tile_width ? Math.max(80, Number(config.min_tile_width)) : null,
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
       // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
@@ -1606,6 +1611,10 @@ class FrigateModernHassCard extends HTMLElement {
   _gridColumns(n) {
     const layout = this._activeLayout();
     const min = this._minTilePx();
+    // On a phone, stacking wins over everything else, a chosen layout included.
+    // Four tiles on a 412px screen is not a grid, it is four thumbnails.
+    const w0 = this._cardWidth || this.offsetWidth || 0;
+    if (this._config.stack_on_mobile && w0 && w0 < PHONE_PX) return 1;
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;
@@ -2997,20 +3006,20 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available. Choose 1 to stack them vertically, which reads better on a phone.</small>
+        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
       </div>
 
       <div class="section">
-        <span class="field-label">Smallest tile</span>
-        <div class="radio-row">
-          ${[[250,'Comfortable'],[160,'Compact'],[110,'Dense']].map(([px,label]) => `
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="${px}" ${String(this._config?.min_tile_width||250)===String(px)?'checked':''}> ${label} <small style="color:#9ca3af">${px}px</small></label>`).join('')}
-        </div>
-        <small style="color:#6b7280;font-size:11px">How narrow a tile may get before the grid drops a column. With this setting a phone shows <b>${this._colsAt(420, cams.length)}</b> and a tablet <b>${this._colsAt(800, cams.length)}</b> per row. A chosen layout is still the upper limit.</small>
-        <div style="margin-top:8px">
-          <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
-          <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
-        </div>
+        <span class="field-label">On a phone</span>
+        <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> Stack the cameras, one per row</label>
+        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">A grid on a phone leaves every camera too small to see anything in, so this is on by default. Turn it off if you want the grid on a phone too, for two cameras side by side or a small overview.</small>
+      </div>
+
+      <div class="section">
+        <span class="field-label">Events panel</span>
+        <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
+        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
+      </div>
       </div>
 
       <div class="section">
@@ -3094,7 +3103,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
   // What the current settings produce at a given card width. The card does this
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 250;
+    if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
+    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols
@@ -3168,8 +3178,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
     const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
     c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
-    const mt = Number(this.querySelector('input[name="min_tile_width"]:checked')?.value || 200);
-    if (mt === 200) delete c.min_tile_width; else c.min_tile_width = mt;
+    c.stack_on_mobile = this.querySelector('#stack_on_mobile')?.checked !== false;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
     this._config=c; this._dispatch();

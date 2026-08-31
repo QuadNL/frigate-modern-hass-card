@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, CAM_COLORS, MIN_TILE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+         labelColor, CAM_COLORS, MIN_TILE_PX, PHONE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -69,9 +69,13 @@ export class FrigateModernHassCard extends HTMLElement {
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
         ? 'auto' : Math.max(1, Math.min(6, Number(config.grid_columns) || 1)),
-      // How narrow a tile may get before a column is dropped. This is what
-      // decides whether a phone stacks the cameras, so it belongs with the
-      // column settings rather than with the fixed sizes.
+      // A grid on a phone is a row of pictures too small to see anything in, so
+      // it stacks by default. Off is for the deliberate case: two cameras side
+      // by side, or a small grid as an overview.
+      stack_on_mobile: config.stack_on_mobile !== false,
+      // Escape hatch for the width at which a column is dropped. Not in the
+      // editor: the stacking question is the one people actually have, and this
+      // is the answer to a rarer one.
       min_tile_width: config.min_tile_width ? Math.max(80, Number(config.min_tile_width)) : null,
       live_provider: config.live_provider === 'go2rtc' ? 'go2rtc' : 'hls',
       // Which go2rtc transport to use. Defaults to 'mse': WebRTC media does not
@@ -527,6 +531,10 @@ export class FrigateModernHassCard extends HTMLElement {
   _gridColumns(n) {
     const layout = this._activeLayout();
     const min = this._minTilePx();
+    // On a phone, stacking wins over everything else, a chosen layout included.
+    // Four tiles on a 412px screen is not a grid, it is four thumbnails.
+    const w0 = this._cardWidth || this.offsetWidth || 0;
+    if (this._config.stack_on_mobile && w0 && w0 < PHONE_PX) return 1;
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;
