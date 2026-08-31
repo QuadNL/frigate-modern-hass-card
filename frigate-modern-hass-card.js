@@ -7,12 +7,17 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0';
+const VERSION = '1.3.0-dev.20';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
 // camera stops being watchable, so fewer columns are used instead.
-const MIN_TILE_PX = 200;
+// Narrowest a grid tile may be before a column is dropped. 250 rather than 200
+// so that every phone gets one camera per row: an Android phone is 412 CSS px
+// wide, which at 200 gave two 200px tiles side by side. That is not a
+// compromise, it is two cameras you cannot see. Overridable per card with
+// min_tile_width for anyone who does want two.
+const MIN_TILE_PX = 250;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -2998,11 +3003,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <div class="section">
         <span class="field-label">Smallest tile</span>
         <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="200" ${String(this._config?.min_tile_width||200)==='200'?'checked':''}> Comfortable <small style="color:#9ca3af">200px</small></label>
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="150" ${String(this._config?.min_tile_width)==='150'?'checked':''}> Compact <small style="color:#9ca3af">150px</small></label>
-          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="110" ${String(this._config?.min_tile_width)==='110'?'checked':''}> Dense <small style="color:#9ca3af">110px</small></label>
+          ${[[250,'Comfortable'],[160,'Compact'],[110,'Dense']].map(([px,label]) => `
+          <label class="radio-lbl"><input type="radio" name="min_tile_width" value="${px}" ${String(this._config?.min_tile_width||250)===String(px)?'checked':''}> ${label} <small style="color:#9ca3af">${px}px</small></label>`).join('')}
         </div>
-        <small style="color:#6b7280;font-size:11px">How narrow a tile may get before the grid drops a column. A phone is about 390px wide, so Comfortable gives it one column, Compact two and Dense three. A chosen layout is still the upper limit.</small>
+        <small style="color:#6b7280;font-size:11px">How narrow a tile may get before the grid drops a column. With this setting a phone shows <b>${this._colsAt(420, cams.length)}</b> and a tablet <b>${this._colsAt(800, cams.length)}</b> per row. A chosen layout is still the upper limit.</small>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
           <small style="color:#6b7280;font-size:11px;display:block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
@@ -3085,6 +3089,19 @@ class FrigateModernHassCardEditor extends HTMLElement {
       const lbl    = this.querySelector(`#${key}_lbl`);
       if (picker && lbl) picker.addEventListener('input', () => { lbl.textContent = picker.value; });
     });
+  }
+
+  // What the current settings produce at a given card width. The card does this
+  // same sum; showing it beats making someone resize a phone to find out.
+  _colsAt(width, camCount) {
+    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 250;
+    const layout = findLayout(this._config?.grid_layout || 'auto');
+    const pinned = Number(this._config?.grid_columns);
+    let cols = layout && layout.cols ? layout.cols
+      : (pinned > 0 ? pinned
+      : (camCount <= 1 ? 1 : camCount <= 4 ? 2 : camCount <= 9 ? 3 : 4));
+    cols = Math.max(1, Math.min(cols, Math.floor(width / min)));
+    return cols === 1 ? '1 camera' : `${cols} cameras`;
   }
 
   // Draw a layout as numbered cells. Seeing the shape is the point; a written
