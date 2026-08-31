@@ -528,6 +528,13 @@ export class FrigateModernHassCard extends HTMLElement {
     const v = Number(this._config.min_tile_width);
     return v > 0 ? Math.max(80, v) : MIN_TILE_PX;
   }
+  // Cells the cameras will occupy, a camera spanning more than one included.
+  _gridCells() {
+    return this._config.cameras.reduce((sum, c) => {
+      const sp = c.span || {};
+      return sum + Math.max(1, Number(sp.cols) || 1) * Math.max(1, Number(sp.rows) || 1);
+    }, 0);
+  }
   _gridColumns(n) {
     const layout = this._activeLayout();
     const min = this._minTilePx();
@@ -541,7 +548,10 @@ export class FrigateModernHassCard extends HTMLElement {
       return w ? Math.max(1, Math.min(layout.cols, Math.floor(w / min))) : layout.cols;
     }
     const cfg = this._config.grid_columns;
-    if (cfg && cfg !== 'auto') return cfg;
+    // A pinned column count is still capped by what there is to put in it. Four
+    // columns for three cameras leaves an empty tile at the end of the row,
+    // which reads as a camera that failed to load rather than as a choice.
+    if (cfg && cfg !== 'auto') return Math.max(1, Math.min(Number(cfg) || 1, this._gridCells()));
     let cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
     // Never make tiles so narrow they stop being watchable. Without this a
     // phone showing seven cameras got three columns of ~100px tiles; the count
