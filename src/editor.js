@@ -105,6 +105,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
           <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
           <small style="color:#6b7280;font-size:11px">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
+          <div style="border-top:1px solid #e5e7eb;margin-top:10px;padding-top:8px">
+            <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> On a phone, stack the cameras one per row</label>
+            <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone too, for two cameras side by side or a small overview.</small>
+          </div>
         </div>
       </div>
 
@@ -184,12 +188,6 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
         <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">On a phone</span>
-        <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> Stack the cameras, one per row</label>
-        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">A grid on a phone leaves every camera too small to see anything in, so this is on by default. Turn it off if you want the grid on a phone too, for two cameras side by side or a small overview.</small>
       </div>
 
       <div class="section">
