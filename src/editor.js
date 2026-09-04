@@ -68,46 +68,65 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
 
     this.innerHTML = `<style>
-      .ed-wrap{display:flex;flex-direction:column;gap:14px;padding:6px 2px;font-family:sans-serif;}
-      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:#374151;}
-      .section{border-top:1px solid #e5e7eb;padding-top:12px;}
+      /* The editor lives in Home Assistant's own dialog, not in a shadow root of
+         ours, so it has to follow the user's theme. Fixed colours here meant an
+         unreadable panel on every dark theme. Each variable keeps a light
+         fallback for the rare theme that does not define it. */
+      .ed-wrap{display:flex;flex-direction:column;gap:14px;padding:6px 2px;
+        font-family:var(--paper-font-body1_-_font-family,sans-serif);
+        color:var(--primary-text-color,#111);
+        --ed-dim:var(--secondary-text-color,#6b7280);
+        --ed-line:var(--divider-color,#e5e7eb);
+        --ed-field:var(--card-background-color,#fff);
+        --ed-acc:var(--primary-color,#3b82f6);}
+      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
+      .section{border-top:1px solid var(--ed-line);padding-top:12px;}
+      .hint{color:var(--ed-dim);font-size:11px;}
       .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
-      .ce,.cn{flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
-      .ce{min-width:0;} .cn{min-width:0;}
-      .cs{padding:7px 4px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff;color:#111;flex-shrink:0;}
-      .xb{padding:5px 8px;border:1px solid #f87171;background:#fee2e2;color:#b91c1c;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
-      .add-btn{padding:6px 12px;border:1px solid #93c5fd;background:rgba(59,130,246,.1);color:#3b82f6;border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
-      .tf{width:100%;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;background:#fff;color:#111;}
+      .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
+        background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
+      .ce,.cn{flex:1;padding:7px;min-width:0;}
+      .tf{width:100%;padding:7px;}
+      .cs{padding:7px 4px;flex-shrink:0;}
+      .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
+        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
+      .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
+        border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
       .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
-      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:#374151;}
+      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--primary-text-color,#111);}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
-      .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3b82f6;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;font-weight:700;}
+      .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+        background:transparent;color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
       .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
-      .lay{padding:6px 5px 5px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
-      .lay:hover{border-color:#93c5fd;}
-      .lay.sel{border-color:#3b82f6;background:rgba(59,130,246,.08);box-shadow:0 0 0 1px #3b82f6 inset;}
+      .lay{padding:6px 5px 5px;border:1px solid var(--ed-line);border-radius:8px;background:transparent;
+        color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
+      .lay:hover{border-color:var(--ed-acc);}
+      .lay.sel{border-color:var(--ed-acc);box-shadow:0 0 0 1px var(--ed-acc) inset;}
       .lay-prev{width:100%;aspect-ratio:4/3;display:grid;gap:2px;grid-auto-flow:dense;grid-auto-rows:1fr;}
-      .lay-prev span{background:#cbd5e1;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#475569;font-weight:700;}
-      .lay.sel .lay-prev span{background:#bfdbfe;color:#1d4ed8;}
-      .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;text-align:center;border:1px dashed #cbd5e1;border-radius:4px;}
-      .lay-lbl{font-size:10px;color:#374151;text-align:center;line-height:1.2;}
+      /* Neutral grey reads on a light and a dark theme alike. */
+      .lay-prev span{background:rgba(128,128,128,.35);border-radius:2px;display:flex;align-items:center;
+        justify-content:center;font-size:9px;color:var(--primary-text-color,#475569);font-weight:700;}
+      .lay.sel .lay-prev span{background:var(--ed-acc);color:var(--text-primary-color,#fff);}
+      .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
+        color:var(--ed-dim);font-size:10px;text-align:center;border:1px dashed var(--ed-line);border-radius:4px;}
+      .lay-lbl{font-size:10px;color:var(--primary-text-color,#374151);text-align:center;line-height:1.2;}
     </style>
     <div class="ed-wrap">
       <div>
-        <span class="field-label">Cameras ${frigEntities.length ? '<small style="font-weight:400;color:#6b7280">· Frigate cameras detected</small>' : ''}</span>
+        <span class="field-label">Cameras ${frigEntities.length ? '<small class="hint" style="font-weight:400">· Frigate cameras detected</small>' : ''}</span>
         <div id="cam-list">${camRows}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="add-btn" id="add-cam">+ Add camera</button>
           <button class="add-btn" id="toggle-layout">Grid layout${usingLayout ? `: ${findLayout(layoutId)?.label || ''}` : ''}</button>
         </div>
-        ${cams.length > 1 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">The number is the tile the camera fills in the grid. Pick a camera that is already in another tile to swap the two.</small>' : ''}
-        ${cams.length > 4 ? '<small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
+        ${cams.length > 1 ? '<small class="hint" style="display:block;margin-top:4px">The number is the tile the camera fills in the grid. Pick a camera that is already in another tile to swap the two.</small>' : ''}
+        ${cams.length > 4 ? '<small class="hint" style="display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
         <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
           <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
-          <small style="color:#6b7280;font-size:11px">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
-          <div style="border-top:1px solid #e5e7eb;margin-top:10px;padding-top:8px">
+          <small class="hint">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
+          <div style="border-top:1px solid var(--divider-color);margin-top:10px;padding-top:8px">
             <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> On a phone, stack the cameras one per row</label>
-            <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone too, for two cameras side by side or a small overview.</small>
+            <small class="hint" style="display:block;margin-top:4px">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone too, for two cameras side by side or a small overview.</small>
           </div>
         </div>
       </div>
@@ -129,7 +148,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
         </div>
         <div style="margin-top:6px">
-          <label><span style="font-size:11px;color:#6b7280">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
+          <label><span class="hint">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
             <input name="rotate_seconds" class="tf" id="rotate_seconds" type="number" value="${this._config?.rotate_seconds??0}" min="0" style="margin-top:3px">
           </label>
         </div>
@@ -151,7 +170,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
             </label>
             <div style="display:flex;align-items:center;gap:6px">
               <input type="color" id="accent_color" value="${this._config?.accent_color||'#3b82f6'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span style="font-size:11px;color:#6b7280" id="accent_lbl">${this._config?.accent_color||'#3b82f6'}</span>
+              <span class="hint" id="accent_lbl">${this._config?.accent_color||'#3b82f6'}</span>
             </div>
           </div>
           <div>
@@ -160,11 +179,11 @@ export class FrigateModernHassCardEditor extends HTMLElement {
             </label>
             <div style="display:flex;align-items:center;gap:6px">
               <input type="color" id="bg_color" value="${this._config?.bg_color||'#1c2233'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span style="font-size:11px;color:#6b7280" id="bg_lbl">${this._config?.bg_color||'#1c2233'}</span>
+              <span class="hint" id="bg_lbl">${this._config?.bg_color||'#1c2233'}</span>
             </div>
           </div>
         </div>
-        <small style="color:#6b7280;font-size:11px">Check the box to activate. Uncheck to revert to theme default.</small>
+        <small class="hint">Check the box to activate. Uncheck to revert to theme default.</small>
       </div>
 
       <div class="section">
@@ -187,13 +206,13 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
           <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
+        <small class="hint">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
       </div>
 
       <div class="section">
         <span class="field-label">Events panel</span>
         <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
-        <small style="color:#6b7280;font-size:11px;display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
+        <small class="hint" style="display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
       </div>
       </div>
 
@@ -203,7 +222,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
           <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc, low latency (experimental)</label>
         </div>
-        <small style="color:#6b7280;font-size:11px">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+        <small class="hint">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
         <div style="margin-top:8px">
           <span class="field-label">go2rtc transport</span>
           <div class="radio-row">
@@ -211,7 +230,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
             <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
             <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${this._config?.go2rtc_mode==='auto'?'checked':''}> Automatic</label>
           </div>
-          <small style="color:#6b7280;font-size:11px">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
+          <small class="hint">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
         </div>
       </div>
 
@@ -220,7 +239,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <input name="stream_height" class="tf" id="stream_height" type="number"
           value="${this._config?.stream_height||''}" min="20" max="100"
           placeholder="e.g. 70, blank = automatic">
-        <small style="color:#6b7280;font-size:11px">As a percentage of the screen height. Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
+        <small class="hint">As a percentage of the screen height. Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
       </div>
 
       <div class="section">
