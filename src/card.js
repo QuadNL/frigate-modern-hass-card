@@ -308,6 +308,12 @@ export class FrigateModernHassCard extends HTMLElement {
     // 'mse' keeps everything on the (proxied) WebSocket instead.
     this._applyGo2rtcMode(player);
     player.src = src;
+    // Right after src the player has either created the socket (CONNECTING) or
+    // refused to, and the two need different fixes: refused means the element
+    // was not in the document yet, CLOSED later means the server hung up.
+    this._dbg('after src', {
+      inDocument: player.isConnected, signed: src !== path, ws: player.wsState, pc: player.pcState,
+    });
     this._go2rtcPlayer = player;
     this._engine = player;
     this._fadeInPlayer(slot, player);
