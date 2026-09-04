@@ -314,6 +314,12 @@ export class FrigateModernHassCard extends HTMLElement {
     this._dbg('after src', {
       inDocument: player.isConnected, signed: src !== path, ws: player.wsState, pc: player.pcState,
     });
+    // The close code says who hung up and why: 1006 is the handshake being
+    // refused (wrong path, or auth), 1000 is a clean close from the other end.
+    if (this._config.debug && player.ws) {
+      player.ws.addEventListener('close', e => this._dbg('socket closed', { code: e.code, reason: e.reason, clean: e.wasClean }));
+      player.ws.addEventListener('open', () => this._dbg('socket open'));
+    }
     this._go2rtcPlayer = player;
     this._engine = player;
     this._fadeInPlayer(slot, player);

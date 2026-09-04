@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.31';
+const VERSION = '1.3.0-dev.32';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -1396,6 +1396,12 @@ class FrigateModernHassCard extends HTMLElement {
     this._dbg('after src', {
       inDocument: player.isConnected, signed: src !== path, ws: player.wsState, pc: player.pcState,
     });
+    // The close code says who hung up and why: 1006 is the handshake being
+    // refused (wrong path, or auth), 1000 is a clean close from the other end.
+    if (this._config.debug && player.ws) {
+      player.ws.addEventListener('close', e => this._dbg('socket closed', { code: e.code, reason: e.reason, clean: e.wasClean }));
+      player.ws.addEventListener('open', () => this._dbg('socket open'));
+    }
     this._go2rtcPlayer = player;
     this._engine = player;
     this._fadeInPlayer(slot, player);
