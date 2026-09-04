@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.28';
+const VERSION = '1.3.0-dev.29';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -1222,10 +1222,12 @@ class FrigateModernHassCard extends HTMLElement {
     await this._discoverAll();
     const now = Math.floor(Date.now()/1000);
     this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
-    if (this._config.default_view === 'grid' && this._config.cameras.length > 1) {
-      this._setViewMode('grid');
-    }
-    await this._mountEngine();
+    const startInGrid = this._config.default_view === 'grid' && this._config.cameras.length > 1;
+    if (startInGrid) this._setViewMode('grid');
+    // Only start the single view player when it is the one on screen. Mounting
+    // it behind the grid opened a stream nobody could see, competing with the
+    // tiles for bandwidth and connections.
+    if (!startInGrid) await this._mountEngine();
     await this._loadWindow(true);
     this._loadCalendar();
     this._subscribe();
