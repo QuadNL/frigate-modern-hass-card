@@ -278,6 +278,14 @@ export class FrigateModernHassCard extends HTMLElement {
       this._dbg('no go2rtc: this camera has no Frigate instance/name yet', { clientId, cam });
       return false;
     }
+    // A camera Frigate does not publish to go2rtc closes the socket at once. Once
+    // is enough to learn that: without this, every switch back to that camera
+    // spent four seconds waiting for a connection that is never coming.
+    const cache = this._camCache[this._activeCam?.entity];
+    if (cache?.noGo2rtc) {
+      this._dbg(cam, 'has no go2rtc stream, going straight to the Home Assistant stream');
+      return false;
+    }
     const paths = this._go2rtcPaths(clientId, cam);
     for (const path of paths) {
       let r = await this._tryGo2rtcPath(slot, token, path);
@@ -295,6 +303,10 @@ export class FrigateModernHassCard extends HTMLElement {
       // fine, so the other one won't help. Go straight to the HLS fallback.
       if (r.routeWorks) return false;
     }
+    // Every route refused the connection while others work, so go2rtc does not
+    // carry this camera. Remember it for as long as the card is open.
+    if (cache) cache.noGo2rtc = true;
+    this._dbg(cam, 'no go2rtc stream on any route; using the Home Assistant stream from now on');
     return false;
   }
   async _tryGo2rtcPath(slot, token, path, opts = {}) {
