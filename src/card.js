@@ -280,16 +280,24 @@ export class FrigateModernHassCard extends HTMLElement {
     }
     const paths = this._go2rtcPaths(clientId, cam);
     for (const path of paths) {
-      const { ok, routeWorks } = await this._tryGo2rtcPath(slot, token, path);
+      let r = await this._tryGo2rtcPath(slot, token, path);
       if (this._engineSeq !== token) return true; // superseded, nothing to do
-      if (ok) { this._go2rtcPath = path; return true; } // remember what worked
+      if (r.ok) { this._go2rtcPath = path; return true; } // remember what worked
+      // The browser accepted the codec and then could not decode it. Ask for the
+      // same stream without H.265 before giving up on go2rtc entirely.
+      if (r.mediaError) {
+        this._dbg('decode failed, asking go2rtc for H.264 instead:', r.mediaError);
+        r = await this._tryGo2rtcPath(slot, token, path, { noHevc: true });
+        if (this._engineSeq !== token) return true;
+        if (r.ok) { this._go2rtcPath = path; return true; }
+      }
       // The socket opened but the stream never played: this proxy route is
       // fine, so the other one won't help. Go straight to the HLS fallback.
-      if (routeWorks) return false;
+      if (r.routeWorks) return false;
     }
     return false;
   }
-  async _tryGo2rtcPath(slot, token, path) {
+  async _tryGo2rtcPath(slot, token, path, opts = {}) {
     const src = await this._signed(path);
     if (this._engineSeq !== token) return { ok: false, routeWorks: false };
 
@@ -297,12 +305,24 @@ export class FrigateModernHassCard extends HTMLElement {
     player.style.cssText = 'width:100%;height:100%;display:block';
     slot.querySelectorAll(':scope > :not(.engine-hold):not(.engine-wait)').forEach(n => n.remove());
     slot.appendChild(player); // creates its <video> synchronously
+    // Chrome reports H.265 as supported and then fails to decode the stream. The
+    // player advertises whatever the browser claims, so go2rtc picks H.265 and
+    // the picture never arrives. Dropping it from the offer makes go2rtc send
+    // H.264 instead. Only on the retry: where H.265 does work it is the better
+    // stream, and this costs go2rtc a transcode.
+    if (opts.noHevc) player.CODECS = player.CODECS.filter(c => !c.startsWith('hvc1'));
     // Upstream's player starts unmuted and only mutes if autoplay is refused;
     // mute before connecting so the live view is never unexpectedly audible.
     if (player.video) {
       player.video.muted = true;
       player.video.style.objectFit = 'contain';
     }
+    // A decode error means waiting out the timeout is pointless: the stream is
+    // arriving, the browser just cannot play it.
+    let mediaError = null;
+    player.video?.addEventListener('error', () => {
+      mediaError = player.video?.error?.message || 'media error';
+    }, { once: true });
     // WebRTC media does not travel through HA's proxy — it goes straight to
     // go2rtc's own port, which typically only resolves on the local network.
     // 'mse' keeps everything on the (proxied) WebSocket instead.
@@ -342,11 +362,12 @@ export class FrigateModernHassCard extends HTMLElement {
       const poll = setInterval(() => {
         const elapsed = Date.now() - started;
         const socketOpen = player.wsState === WebSocket.OPEN || player.pcState === WebSocket.OPEN;
-        if (!socketOpen && elapsed > SOCKET_MS) finish({ ok: false, routeWorks: false });
+        if (mediaError) finish({ ok: false, routeWorks: true, mediaError });
+        else if (!socketOpen && elapsed > SOCKET_MS) finish({ ok: false, routeWorks: false });
         else if (elapsed > PLAY_MS) finish({ ok: false, routeWorks: true });
       }, 250);
     });
-    this._dbg('go2rtc path', path.replace(/\?.*/, ''), result.ok ? 'playing' : (result.routeWorks ? 'socket opened but no picture' : 'socket never opened'),
+    this._dbg('go2rtc path', path.replace(/\?.*/, ''), result.ok ? 'playing' : (result.mediaError ? `decode failed: ${result.mediaError}` : (result.routeWorks ? 'socket opened but no picture' : 'socket never opened')),
       { ws: player.wsState, pc: player.pcState, mode: player.mode, video: !!player.video, ready: player.video?.readyState });
     if (this._engineSeq !== token) return { ok: false, routeWorks: true };
     if (result.ok) { this._startGo2rtcWatchdog(player, () => this._mountEngine()); return result; }
