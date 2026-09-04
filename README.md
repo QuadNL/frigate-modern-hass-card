@@ -92,6 +92,7 @@ default_view: single     # or 'grid'
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
+| `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
 
 ### Grid layout
 
