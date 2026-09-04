@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-dev.29';
+const VERSION = '1.3.0-dev.30';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -1151,6 +1151,9 @@ class FrigateModernHassCard extends HTMLElement {
       // number. 1 stacks the cameras vertically.
       grid_columns: (config.grid_columns === undefined || config.grid_columns === 'auto')
         ? 'auto' : Math.max(1, Math.min(6, Number(config.grid_columns) || 1)),
+      // Logs why the live view chose what it chose. Off unless asked for, so it
+      // can stay in the code rather than being bolted on during every hunt.
+      debug: config.debug === true,
       // A grid on a phone is a row of pictures too small to see anything in, so
       // it stacks by default. Off is for the deliberate case: two cameras side
       // by side, or a small grid as an overview.
@@ -1328,11 +1331,14 @@ class FrigateModernHassCard extends HTMLElement {
     if (!stateObj) return;
 
     if (this._config.live_provider === 'go2rtc') {
+      const t0 = Date.now();
       const ok = await this._mountGo2rtc(slot, token);
+      this._dbg(`single view ${entity}: go2rtc ${ok ? 'playing' : 'gave up'} after ${Date.now() - t0}ms`);
       if (ok || this._engineSeq !== token) return;
       slot.innerHTML = frame ? '' : spinner; // go2rtc did not start, fall through to HLS
       this._holdFrame(slot, frame);
     }
+    this._dbg(`single view ${entity}: starting the Home Assistant HLS player`);
     this._mountHaPlayer(slot, entity, stateObj);
   }
 
@@ -1350,7 +1356,10 @@ class FrigateModernHassCard extends HTMLElement {
   // Returns true when go2rtc is playing (or was superseded), false to fall back to HLS.
   async _mountGo2rtc(slot, token) {
     const { clientId, cam } = this._cc();
-    if (!clientId || !cam) return false;
+    if (!clientId || !cam) {
+      this._dbg('no go2rtc: this camera has no Frigate instance/name yet', { clientId, cam });
+      return false;
+    }
     const paths = this._go2rtcPaths(clientId, cam);
     for (const path of paths) {
       const { ok, routeWorks } = await this._tryGo2rtcPath(slot, token, path);
@@ -1407,6 +1416,8 @@ class FrigateModernHassCard extends HTMLElement {
         else if (elapsed > PLAY_MS) finish({ ok: false, routeWorks: true });
       }, 250);
     });
+    this._dbg('go2rtc path', path.replace(/\?.*/, ''), result.ok ? 'playing' : (result.routeWorks ? 'socket opened but no picture' : 'socket never opened'),
+      { ws: player.wsState, pc: player.pcState, mode: player.mode, video: !!player.video, ready: player.video?.readyState });
     if (this._engineSeq !== token) return { ok: false, routeWorks: true };
     if (result.ok) { this._startGo2rtcWatchdog(player, () => this._mountEngine()); return result; }
     this._teardownGo2rtc();
@@ -1782,6 +1793,7 @@ class FrigateModernHassCard extends HTMLElement {
       this._gridPlayers = (this._gridPlayers || []).filter(x => x !== player);
       return;
     }
+    this._dbg('grid tile', entity, ok ? 'playing' : 'gave up', { ws: player.wsState, pc: player.pcState });
     if (ok) {
       slot.querySelector('.ph')?.remove();
       this._startGo2rtcWatchdog(player, giveUp);
@@ -1912,6 +1924,7 @@ class FrigateModernHassCard extends HTMLElement {
 
   // ── data ─────────────────────────────────────────────────
   _cc() { return this._camCache[this._activeCam?.entity] || mkCamState(); }
+  _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
   _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
 
