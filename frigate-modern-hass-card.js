@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0-preview.3';
+const VERSION = '1.3.0-dev.37';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2713,9 +2713,40 @@ class FrigateModernHassCard extends HTMLElement {
     track.addEventListener('mousedown',e=>{e.preventDefault();dn(e.clientX);});
     window.addEventListener('mousemove',e=>mv(e.clientX));
     window.addEventListener('mouseup',up);
-    track.addEventListener('touchstart',e=>dn(e.touches[0].clientX),{passive:true});
-    track.addEventListener('touchmove',e=>mv(e.touches[0].clientX),{passive:true});
-    track.addEventListener('touchend',up);
+    // Pinch to zoom the window, the touch counterpart of the wheel below. One
+    // finger pans, two zoom, and the moment the second finger lands the pan is
+    // abandoned so the window does not jump. The time under the fingers stays
+    // put, which is what makes a pinch feel like it is zooming and not sliding.
+    const gap=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    let pinch=null;
+    const settle=()=>{clearTimeout(this._wt);this._wt=setTimeout(()=>this._loadWindow(true),350);};
+    track.addEventListener('touchstart',e=>{
+      if(e.touches.length===2){
+        drag=false;track.classList.remove('grab');
+        const rect=track.getBoundingClientRect();
+        const midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
+        const frac=Math.min(1,Math.max(0,(midX-rect.left)/rect.width));
+        const span=this._winEnd-this._winStart;
+        pinch={d0:gap(e.touches[0],e.touches[1])||1,span0:span,anchor:this._winStart+span*frac,frac};
+      } else { pinch=null; dn(e.touches[0].clientX); }
+    },{passive:true});
+    track.addEventListener('touchmove',e=>{
+      if(pinch&&e.touches.length===2){
+        e.preventDefault(); // otherwise the browser zooms the page instead
+        const d=gap(e.touches[0],e.touches[1])||1;
+        let nsp=Math.round(pinch.span0*(pinch.d0/d));
+        nsp=Math.max(300,Math.min(14*DAY,nsp)); // same limits as the wheel
+        let ns=Math.round(pinch.anchor-nsp*pinch.frac),ne=ns+nsp;
+        const now=Math.floor(Date.now()/1000);
+        if(ne>now){const a=ne-now;ne-=a;ns-=a;}
+        this._winStart=ns;this._winEnd=ne;this._exhausted=false;
+        this._renderTimeline();this._renderRange();
+      } else if(!pinch) mv(e.touches[0].clientX);
+    },{passive:false});
+    track.addEventListener('touchend',e=>{
+      if(pinch){ if(e.touches.length<2){pinch=null;settle();} return; }
+      up();
+    });
     track.addEventListener('wheel',e=>{
       e.preventDefault();
       const rect=track.getBoundingClientRect();const frac=Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
@@ -2727,7 +2758,7 @@ class FrigateModernHassCard extends HTMLElement {
       if(ne>now){const a=ne-now;ne-=a;ns-=a;}
       this._winStart=ns;this._winEnd=ne;this._exhausted=false;
       this._renderTimeline();this._renderRange();
-      clearTimeout(this._wt);this._wt=setTimeout(()=>this._loadWindow(true),350);
+      settle();
     },{passive:false});
   }
   _wireScroll() {
