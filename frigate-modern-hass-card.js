@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.4.0-dev.2';
+const VERSION = '1.4.0-dev.3';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2197,11 +2197,9 @@ class FrigateModernHassCard extends HTMLElement {
     const grid = this._config.cameras.length > 1
       ? `<button class="tool tool-txt" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
       : '';
-    // The card's own fullscreen, in both views. The player has one too, but it
-    // takes only the video, without the card's controls on it: PTZ, the Live
-    // button and the labels stayed behind. On an iPhone it still falls back to
-    // the video's own fullscreen, the only kind Safari offers there.
-    const fs = `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`;
+    // Grid view only. The single view uses the player's own fullscreen, by the
+    // user's choice since 1.1.0: one fullscreen button there, not two.
+    const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
