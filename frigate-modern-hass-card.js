@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.1-dev.1';
+const VERSION = '1.3.1-dev.2';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2264,7 +2264,7 @@ class FrigateModernHassCard extends HTMLElement {
     const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl,dl.dataset.dlFile); }
     const fav = e.target.closest('[data-fav]'); if (fav) { e.stopPropagation(); return this._toggleFav(fav.dataset.fav); }
     const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv=revMark.closest('[data-review-id]'); e.stopPropagation(); if(rv) return this._markReviewed(rv.dataset.reviewId); }
-    const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._showClipById(revOpen.dataset.reviewOpen);
+    const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._openReview(revOpen);
     const pill = e.target.closest('[data-tab]'); if (pill) return this._setTab(pill.dataset.tab);
     const tick = e.target.closest('[data-tick]'); if (tick) return this._open(tick.dataset.tick);
     // Stop seek-bar clicks from bubbling up to the recording row handler
@@ -2456,6 +2456,26 @@ class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
+  // A review item is one arrival, often several tracked objects long. Play the
+  // whole period from the recordings rather than the clip of one object inside
+  // it, which started wherever that object happened to appear. If the period
+  // cannot be played, for example on a setup that keeps no continuous recording,
+  // fall back to the clip of the earliest object, which is the old behaviour
+  // minus the wrong starting point.
+  _openReview(row) {
+    const start = Math.floor(Number(row.dataset.rvS));
+    const endRaw = Number(row.dataset.rvE);
+    // An ongoing review has no end yet: play up to now.
+    const end = Math.ceil(endRaw > 0 ? endRaw : Date.now() / 1000);
+    const det = row.dataset.reviewOpen;
+    const fallback = () => {
+      if (det) return this._showClipById(det);
+      const viewer = this.shadowRoot.querySelector('#viewer');
+      if (viewer) viewer.innerHTML = '<div class="ld">No recording for this period</div>';
+    };
+    if (!(start > 0) || end <= start) return fallback();
+    return this._showRecording(start, end, null, { fallback });
+  }
   async _showClipById(id) {
     if(!id) return;
     const token = ++this._playSeq;
@@ -2476,7 +2496,7 @@ class FrigateModernHassCard extends HTMLElement {
     const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
     return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${m}:${String(ss).padStart(2,'0')}`;
   }
-  async _showRecording(s, e, seekFrom) {
+  async _showRecording(s, e, seekFrom, opts = {}) {
     const start = seekFrom || s;
     const token = ++this._playSeq; // cancel any in-flight load
     this._enter(); this._playing={rec:s};
@@ -2516,6 +2536,19 @@ class FrigateModernHassCard extends HTMLElement {
         </div>
       </div>`;
     const vid     = viewer.querySelector('video');
+    // Caller-supplied way out when the recording does not play at all. Only
+    // before the first frame: a stream that started and then stalled is a
+    // different problem, and swapping it for a clip would hide it.
+    if (vid && opts.fallback) {
+      let started = false;
+      const bail = () => {
+        if (started || this._playSeq !== token) return;
+        started = true; clearTimeout(guard); opts.fallback();
+      };
+      const guard = setTimeout(bail, 10000);
+      vid.addEventListener('loadeddata', () => { started = true; clearTimeout(guard); }, { once: true });
+      vid.addEventListener('error', bail, { once: true });
+    }
     const ppBtn   = viewer.querySelector('.rec-pp-btn');
     const muteBtn = viewer.querySelector('.rec-mute-btn');
     const ctTime  = viewer.querySelector('.rec-ctl-time');
@@ -2959,10 +2992,14 @@ class FrigateModernHassCard extends HTMLElement {
       const sev=r.severity==='alert'?'alert':'detection';
       const objs=(r.data?.objects||[]).map(cap).join(', ');
       const title=r.data?.metadata?.title||objs||cap(r.severity);
-      const firstDet=(r.data?.detections&&r.data.detections[0])||'';
+      // Frigate does not return detections in time order, so [0] was usually an
+      // object from halfway through the period. Event ids start with their epoch,
+      // which parseFloat reads, so sorting on that gives the earliest.
+      const dets=[...(r.data?.detections||[])].sort((a,b)=>parseFloat(a)-parseFloat(b));
+      const firstDet=dets[0]||'';
       const reviewed=r.has_been_reviewed;
       const thumb=firstDet?`<div class="rev-th"><img src="${this._media(firstDet,'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`:'';
-      return`<div class="rev ${sev}" data-review-id="${r.id}" ${firstDet?`data-review-open="${firstDet}"`:''}><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':firstDet?' · tap':''}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
+      return`<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time||''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':' · tap'}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
     }).join('');
   }
 
