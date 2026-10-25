@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.1-dev.6';
+const VERSION = '1.3.1-dev.7';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
