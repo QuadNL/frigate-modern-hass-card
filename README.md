@@ -74,7 +74,7 @@ default_view: single     # or 'grid'
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `camera_entity` | string | none | Single camera entity (shorthand) |
-| `cameras` | list | none | List of `{entity, name, span}` objects. `span` makes a camera occupy several tiles |
+| `cameras` | list | none | List of `{entity, name, span, color}` objects. `span` makes a camera occupy several tiles, `color` (hex, e.g. `'#e6a700'`) sets its colour on the grid view timeline |
 | `title` | string | none | Card title |
 | `subtitle` | string | none | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |

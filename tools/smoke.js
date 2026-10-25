@@ -84,7 +84,7 @@ if (!cardTag || !editorTag) fail('registration', `card=${cardTag} editor=${edito
 // used before its declaration blows up.
 const configs = [
   { camera_entity: 'camera.one' },
-  { cameras: [{ entity: 'camera.one' }, { entity: 'camera.two', span: 2 }] },
+  { cameras: [{ entity: 'camera.one', color: '#ff8800' }, { entity: 'camera.two', span: 2 }] },
   { cameras: [{ entity: 'camera.one' }], grid_layout: '6-big' },
   { cameras: [{ entity: 'camera.one' }], grid_columns: 3, live_provider: 'go2rtc' },
 ];

@@ -68,10 +68,21 @@ const REC_NEUTRAL = 'rgba(148,163,184,.35)';
 // cameras the palette would repeat, so camera 9 looked like camera 1: spread
 // that many hues evenly around the wheel instead, one per camera. At sixteen the
 // neighbours get close, which is why the tooltip names the camera as well.
-function camSolid(i, count = 0) {
-  if (count > CAM_COLORS.length) return `hsl(${Math.round(i * 360 / count)}, 70%, 55%)`;
-  return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
+// Always hex, because the editor shows it in an <input type="color">, which
+// accepts nothing else.
+const hex2 = v => Math.round(v).toString(16).padStart(2, '0');
+function hslHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${hex2(f(0) * 255)}${hex2(f(8) * 255)}${hex2(f(4) * 255)}`;
 }
+function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return hslHex(Math.round(i * 360 / count), 70, 55);
+  const [r, g, b] = CAM_COLORS[i % CAM_COLORS.length].match(/\d+/g).map(Number);
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody
@@ -1137,7 +1148,7 @@ class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span) }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null }));
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
@@ -2028,6 +2039,9 @@ class FrigateModernHassCard extends HTMLElement {
 
   // ── data ─────────────────────────────────────────────────
   _cc() { return this._camCache[this._activeCam?.entity] || mkCamState(); }
+  // A camera's colour on the grid view timeline: its own if the config gives
+  // one, otherwise the default for its place in the list.
+  _camColor(i) { return this._config.cameras[i]?.color || camSolid(i, this._config.cameras.length); }
   _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
   _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
@@ -2928,7 +2942,7 @@ class FrigateModernHassCard extends HTMLElement {
     // view, object labels on a single camera.
     let html;
     if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i,arr)=>`<span class="lg"><i style="background:${camSolid(i, arr.length)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
       html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
@@ -3013,7 +3027,7 @@ class FrigateModernHassCard extends HTMLElement {
       if(ev.start_time<s||ev.start_time>e)continue;
       const left=(ev.start_time-s)/span*100;
       const ci = all ? camIdx(ev) : -1;
-      const col = ci >= 0 ? camSolid(ci, this._config.cameras.length) : labelColor(ev.label);
+      const col = ci >= 0 ? this._camColor(ci) : labelColor(ev.label);
       const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
       html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
     }
@@ -3173,7 +3187,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
         </select>`}
-        ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+        ${cams.length > 1 ? `
+        <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
+        ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
+        <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
     const hiddenTabs = new Set(this._config?.hidden_tabs || []);
@@ -3206,6 +3223,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .ce,.cn{flex:1;padding:7px;min-width:0;}
       .tf{width:100%;padding:7px;}
       .cs{padding:7px 4px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
+      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
       .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
         color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
@@ -3389,6 +3408,12 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // sends whatever stood here back to the tile it came from. Without this you
     // would end up with the same camera twice and no way to place it. Runs
     // before the generic change handler so it can take over the update.
+    this.querySelectorAll('[data-reset-color]').forEach(b => b.addEventListener('click', () => {
+      const i = Number(b.dataset.resetColor);
+      const inp = this.querySelector(`[data-cam-color="${i}"]`);
+      if (inp) inp.value = camSolid(i, this.querySelectorAll('[data-row]').length);
+      this._u();
+    }));
     this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
       const i = Number(ev.currentTarget.dataset.camEntity);
       const picked = ev.currentTarget.value;
@@ -3399,8 +3424,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
       ev.stopImmediatePropagation();
       const cur = this._getCams(); // keeps the sizes, which belong to the tile
       const nameOf = k => before[k]?.name || '';
-      cur[i] = { ...cur[i], entity: picked, name: nameOf(j) };
-      cur[j] = { ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) };
+      // Name and colour belong to the camera, so they move with it; the size
+      // belongs to the tile and stays.
+      const withColor = (o, k) => { const x = { ...o }; delete x.color; if (isHex(before[k]?.color)) x.color = before[k].color; return x; };
+      cur[i] = withColor({ ...cur[i], entity: picked, name: nameOf(j) }, j);
+      cur[j] = withColor({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
@@ -3454,13 +3482,18 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
-    return rows.map(r => {
+    return rows.map((r, idx) => {
       const span = Number(r.querySelector('[data-cam-span]')?.value || 1);
+      // Only a colour someone picked goes into the YAML. The swatch always shows
+      // one, so compare it with the default for this place in the list.
+      const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
+      const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
+        ...(color ? { color } : {}),
       };
     });
   }

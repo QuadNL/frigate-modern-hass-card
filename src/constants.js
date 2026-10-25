@@ -68,10 +68,21 @@ export const REC_NEUTRAL = 'rgba(148,163,184,.35)';
 // cameras the palette would repeat, so camera 9 looked like camera 1: spread
 // that many hues evenly around the wheel instead, one per camera. At sixteen the
 // neighbours get close, which is why the tooltip names the camera as well.
-export function camSolid(i, count = 0) {
-  if (count > CAM_COLORS.length) return `hsl(${Math.round(i * 360 / count)}, 70%, 55%)`;
-  return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
+// Always hex, because the editor shows it in an <input type="color">, which
+// accepts nothing else.
+const hex2 = v => Math.round(v).toString(16).padStart(2, '0');
+function hslHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${hex2(f(0) * 255)}${hex2(f(8) * 255)}${hex2(f(4) * 255)}`;
 }
+export function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return hslHex(Math.round(i * 360 / count), 70, 55);
+  const [r, g, b] = CAM_COLORS[i % CAM_COLORS.length].match(/\d+/g).map(Number);
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+export const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody

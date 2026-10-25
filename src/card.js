@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, camSolid, REC_NEUTRAL, MIN_TILE_PX, PHONE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+         labelColor, camSolid, isHex, REC_NEUTRAL, MIN_TILE_PX, PHONE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -37,7 +37,7 @@ export class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span) }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null }));
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
@@ -928,6 +928,9 @@ export class FrigateModernHassCard extends HTMLElement {
 
   // ── data ─────────────────────────────────────────────────
   _cc() { return this._camCache[this._activeCam?.entity] || mkCamState(); }
+  // A camera's colour on the grid view timeline: its own if the config gives
+  // one, otherwise the default for its place in the list.
+  _camColor(i) { return this._config.cameras[i]?.color || camSolid(i, this._config.cameras.length); }
   _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
   _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
@@ -1828,7 +1831,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // view, object labels on a single camera.
     let html;
     if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i,arr)=>`<span class="lg"><i style="background:${camSolid(i, arr.length)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
       html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
@@ -1913,7 +1916,7 @@ export class FrigateModernHassCard extends HTMLElement {
       if(ev.start_time<s||ev.start_time>e)continue;
       const left=(ev.start_time-s)/span*100;
       const ci = all ? camIdx(ev) : -1;
-      const col = ci >= 0 ? camSolid(ci, this._config.cameras.length) : labelColor(ev.label);
+      const col = ci >= 0 ? this._camColor(ci) : labelColor(ev.label);
       const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
       html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
     }
