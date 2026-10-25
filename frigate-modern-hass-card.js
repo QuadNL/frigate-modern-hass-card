@@ -128,6 +128,9 @@ function camDisplayName(c) { return c.name || (c.entity||'').replace(/^camera\./
 // ── styles ───────────────────────────────────────────────────
 const STYLES = `
   :host{display:block;}
+  /* The hidden attribute loses to any class that sets display, which kept the
+     timeline's Back button on screen with nothing to go back to. */
+  [hidden]{display:none !important;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
 
@@ -352,6 +355,9 @@ const STYLES = `
   /* ── filter + cal ── */
   .filter-panel,.cal-panel{background:var(--c-bg-panel);border:1px solid var(--c-border2);border-radius:9px;padding:8px;margin-bottom:7px;}
   .frow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:4px;} .frow:last-child{margin-bottom:0;} .frow-l{font-size:10px;color:var(--c-text3);width:38px;text-transform:uppercase;flex-shrink:0;}
+  /* Events too close to separate by zooming, listed to pick from. */
+  .grp-panel{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .grp-panel .chip{display:inline-flex;align-items:center;padding:5px 10px;font-size:12px;}
   .chip{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:14px;padding:3px 9px;font-size:11px;cursor:pointer;}
   .chip.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;} .cal-head b{font-size:12px;} .cal-head button{background:none;border:none;color:#93c5fd;font-size:17px;cursor:pointer;padding:0 5px;}
@@ -2085,7 +2091,7 @@ class FrigateModernHassCard extends HTMLElement {
     const name = cap(camDisplayName(c));
     if (!ev) return `<div class="grid-label">${dot}${name}</div>`;
     const what = cap(ev.label || ''), when = this._time(ev.start_time);
-    return `<div class="grid-label">${dot}<span class="gl-full">${name} · ${what} · ${when}</span><span class="gl-short">${when} · ${what}</span></div>`;
+    return `<div class="grid-label">${dot}<span class="gl-full">${name} · ${when} · ${what}</span><span class="gl-short">${when} · ${what}</span></div>`;
   }
   // Light up the tiles of the cameras behind the event under the pointer.
   _hlTiles(list) {
@@ -2098,13 +2104,48 @@ class FrigateModernHassCard extends HTMLElement {
     });
   }
   // Zoom the timeline onto a group of events so they come apart again.
+  // The window a group would zoom to: its events plus some room either side,
+  // never narrower than the 5 minutes the wheel stops at.
+  _zoomWindow(a, b) {
+    const pad = Math.max(60, (b - a) * 0.25);
+    let ns = Math.floor(a - pad), ne = Math.ceil(b + pad);
+    if (ne - ns < 300) { const mid = (ns + ne) / 2; ns = Math.floor(mid - 150); ne = ns + 300; }
+    return [ns, ne];
+  }
+  // A tap on a group zooms in on it, unless zooming cannot pull its events
+  // apart: they are seconds apart and the timeline is already about as close
+  // as it goes. Then a second tap would land on the same block again, so list
+  // them to pick from instead. Returns which it did, for the smoke test.
+  _openGroup(el) {
+    const a = Number(el.dataset.grpS), b = Number(el.dataset.grpE);
+    const [ns, ne] = this._zoomWindow(a, b);
+    if (ne - ns >= (this._winEnd - this._winStart) * 0.8) {
+      this._pickGroup((el.dataset.grpIds || '').split(',').filter(Boolean));
+      return 'pick';
+    }
+    this._pickGroup(null);
+    this._zoomTo(a, b);
+    return 'zoom';
+  }
+  _pickGroup(ids) {
+    const p = this.shadowRoot.querySelector('#grp-panel'); if (!p) return;
+    if (!ids || !ids.length) { p.hidden = true; p.innerHTML = ''; return; }
+    const all = this._eventsMode === 'all';
+    const evs = ids.map(id => this._allDisplayEvents().find(e => e.id === id)).filter(Boolean);
+    p.innerHTML = evs.map(ev => {
+      const ci = this._config.cameras.findIndex(c => this._camCache[c.entity]?.cam === ev.camera);
+      const col = all && ci >= 0 ? this._camColor(ci) : labelColor(ev.label);
+      const where = all && ci >= 0 ? ` · ${cap(camDisplayName(this._config.cameras[ci]))}` : '';
+      const when = this._time(ev.start_time, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return `<button class="chip" data-tick="${ev.id}"><i class="cam-dot-lbl" style="background:${col}"></i>${when} · ${cap(ev.label)}${where}</button>`;
+    }).join('') + `<button class="chip" data-grp-close>Close</button>`;
+    p.hidden = false;
+  }
   _zoomTo(a, b) {
     // Remembered so Back returns to exactly this window: zoom into one busy
     // block, come back, zoom into the next.
     (this._zoomStack = this._zoomStack || []).push([this._winStart, this._winEnd]);
-    const pad = Math.max(60, (b - a) * 0.25);
-    let ns = Math.floor(a - pad), ne = Math.ceil(b + pad);
-    if (ne - ns < 300) { const mid = (ns + ne) / 2; ns = Math.floor(mid - 150); ne = ns + 300; }
+    let [ns, ne] = this._zoomWindow(a, b);
     const now = Math.floor(Date.now() / 1000);
     if (ne > now) { const d = ne - now; ne -= d; ns -= d; }
     this._winStart = ns; this._winEnd = ne; this._exhausted = false;
@@ -2219,8 +2260,8 @@ class FrigateModernHassCard extends HTMLElement {
             <div class="tl-sec">
               <div class="tl-head">
                 <div class="tl-where">
+                  <button class="tool" id="zoom-back" title="Back to where you were before zooming in" hidden>${ICONS.back}</button>
                   <span class="section-label" id="tl-range">—</span>
-                  <button class="tool tool-txt" id="zoom-back" title="Back to where you were before zooming in" hidden>${ICONS.back}<span>Back</span></button>
                 </div>
                 <div class="tl-tools">
                   <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
@@ -2232,6 +2273,7 @@ class FrigateModernHassCard extends HTMLElement {
               <div class="filter-panel" id="filter-panel" style="display:none"></div>
               <div class="cal-panel" id="cal-panel" style="display:none"></div>
               <div class="tl-track" id="tl-track" title="Drag · scroll=zoom · Shift+scroll=pan"><div class="tl-now"></div></div>
+              <div class="grp-panel" id="grp-panel" hidden></div>
               <div class="tl-labels" id="tl-labels"></div>
               <div class="legend" id="legend"></div>
             </div>
@@ -2418,10 +2460,13 @@ class FrigateModernHassCard extends HTMLElement {
     // A tick opens its clip where the list would: in the camera's own tile in
     // grid view. _open alone uses the single view player, which is hidden while
     // the grid is showing, so in grid view a tick seemed to do nothing (#11).
-    const grp = e.target.closest('[data-grp-s]');
-    if (grp) return this._zoomTo(Number(grp.dataset.grpS), Number(grp.dataset.grpE));
+    const grp = e.target.closest('[data-grp-s]'); if (grp) return this._openGroup(grp);
+    if (e.target.closest('[data-grp-close]')) return this._pickGroup(null);
     const tick = e.target.closest('[data-tick]');
-    if (tick) return this._viewMode === 'grid' ? this._openInGridSlot(tick.dataset.tick) : this._open(tick.dataset.tick);
+    if (tick) {
+      this._pickGroup(null);
+      return this._viewMode === 'grid' ? this._openInGridSlot(tick.dataset.tick) : this._open(tick.dataset.tick);
+    }
     // Stop seek-bar clicks from bubbling up to the recording row handler
     if (e.target.closest('.rec-seek-wrap')) return;
     const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
@@ -2537,7 +2582,9 @@ class FrigateModernHassCard extends HTMLElement {
     const el = this.shadowRoot.querySelector('#play-info'); if (!el) return;
     el.textContent = text || ''; el.hidden = !text;
   }
-  _evInfo(ev) { return `${cap(ev.label || '')} · ${this._time(ev.start_time)}`; }
+  // Time first, everywhere a playing event is named: single view, grid tiles,
+  // narrow tiles. Two orders for the same thing read as two different things.
+  _evInfo(ev) { return `${this._time(ev.start_time)} · ${cap(ev.label || '')}`; }
   // On a phone the player sits above the list, so picking a clip far down the
   // list started it off screen and left you looking at the list. Scroll back up
   // to it, but only when its top is actually out of view: on a wide card the
@@ -2642,7 +2689,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (!(start > 0) || end <= start) return fallback();
     const shown = this._showRecording(start, end, null, { fallback });
     const title = row.querySelector('.rev-t')?.textContent || '';
-    this._playInfo(`${title} · ${this._time(start)}`);
+    this._playInfo(`${this._time(start)} · ${title}`);
     return shown;
   }
   async _showClipById(id) {
@@ -2844,7 +2891,7 @@ class FrigateModernHassCard extends HTMLElement {
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
     if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
   }
-  _goNow() { this._zoomStack=[]; const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
+  _goNow() { this._zoomStack=[]; this._pickGroup(null); const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
   _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
   // ── favorites (realtime) ──────────────────────────────────
@@ -2937,8 +2984,10 @@ class FrigateModernHassCard extends HTMLElement {
     let drag=false,sx=0,sws=0,swe=0;
     // Pointing at an event lights up its camera's tile straight away, without
     // waiting for the browser's tooltip.
-    track.addEventListener('mouseover',e=>{const t=e.target.closest('[data-cis]');this._hlTiles(t?t.dataset.cis:'');});
-    track.addEventListener('mouseleave',()=>this._hlTiles(''));
+    // Only for a real mouse: on a phone a tap also fires mouseover, but nothing
+    // ever un-hovers, so the tile stayed framed.
+    track.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return;const t=e.target.closest('[data-cis]');this._hlTiles(t?t.dataset.cis:'');});
+    track.addEventListener('pointerleave',()=>this._hlTiles(''));
     const dn=x=>{drag=true;sx=x;sws=this._winStart;swe=this._winEnd;track.classList.add('grab');};
     const mv=x=>{if(!drag)return;const w=track.clientWidth||1;const sp=swe-sws;const sh=Math.round((x-sx)/w*sp);let ns=sws-sh,ne=swe-sh;const now=Math.floor(Date.now()/1000);if(ne>now){const a=ne-now;ne-=a;ns-=a;}this._winStart=ns;this._winEnd=ne;this._renderTimeline();this._renderRange();};
     const up=()=>{if(!drag)return;drag=false;track.classList.remove('grab');this._loadWindow(true);};
@@ -3026,6 +3075,7 @@ class FrigateModernHassCard extends HTMLElement {
   _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
   _zoomBack() {
+    this._pickGroup(null);
     const prev = (this._zoomStack || []).pop(); if (!prev) return;
     [this._winStart, this._winEnd] = prev; this._exhausted = false;
     this._renderTimeline(); this._renderRange();
@@ -3050,7 +3100,7 @@ class FrigateModernHassCard extends HTMLElement {
     } else {
       html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
-    html+=`<span class="lg"><i style="background:${this._eventsMode==='all'?REC_NEUTRAL:camSolid(0)}"></i>Recording</span>`;
+    html+=`<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
     el.innerHTML=html;
   }
 
@@ -3120,7 +3170,7 @@ class FrigateModernHassCard extends HTMLElement {
       // Neutral, so it cannot be mistaken for the first camera's colour.
       for(const r of this._mergeRecs(all)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
     } else {
-      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%"></div>`;}
+      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
     }
     // With every camera on one timeline a tick is coloured by camera, so you can
     // see where something happened; what it was is in the tooltip. On a single
@@ -3159,7 +3209,7 @@ class FrigateModernHassCard extends HTMLElement {
       const col = all ? (cis.length === 1 ? this._camColor(cis[0]) : REC_GROUP)
                       : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
       const names = all ? ' · ' + cis.map(i => cap(camDisplayName(this._config.cameras[i]))).join(', ') : '';
-      html += `<div class="t-grp" data-grp-s="${a}" data-grp-e="${b}"${hl} style="left:${mid}%;background:${col}" title="${g.evs.length} events ${this._time(a)}–${this._time(b)}${names}. Tap to zoom in">${g.evs.length}</div>`;
+      html += `<div class="t-grp" data-grp-s="${a}" data-grp-e="${b}" data-grp-ids="${g.evs.map(ev => ev.id).join(',')}"${hl} style="left:${mid}%;background:${col}" title="${g.evs.length} events ${this._time(a)}–${this._time(b)}${names}">${g.evs.length}</div>`;
     }
     const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
     html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;

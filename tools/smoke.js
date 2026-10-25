@@ -165,6 +165,13 @@ function timeline() {
   if (card._winStart !== 1000 || card._winEnd !== 2000) fail('timeline', `Back gave ${card._winStart}-${card._winEnd}, not 1000-2000`);
   card._zoomTo(1100, 1108); card._goNow();
   if (card._zoomStack.length) fail('timeline', 'Now left a way back behind');
+  // A group that zooming cannot separate is offered as a list instead.
+  const block = a => ({ dataset: { grpS: String(a), grpE: String(a + 4), grpIds: 'x,y' } });
+  card._pickGroup = () => {};
+  card._winStart = 0; card._winEnd = 21600;
+  if (card._openGroup(block(100)) !== 'zoom') fail('timeline', 'a group in a 6 hour window should zoom in');
+  card._winStart = 0; card._winEnd = 300;
+  if (card._openGroup(block(100)) !== 'pick') fail('timeline', 'a group at the closest zoom should be listed, not zoomed again');
 }
 try { timeline(); } catch (err) { fail('timeline', err); }
 

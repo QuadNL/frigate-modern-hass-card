@@ -2,6 +2,9 @@
 // ── styles ───────────────────────────────────────────────────
 export const STYLES = `
   :host{display:block;}
+  /* The hidden attribute loses to any class that sets display, which kept the
+     timeline's Back button on screen with nothing to go back to. */
+  [hidden]{display:none !important;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
 
@@ -227,6 +230,9 @@ export const STYLES = `
   /* ── filter + cal ── */
   .filter-panel,.cal-panel{background:var(--c-bg-panel);border:1px solid var(--c-border2);border-radius:9px;padding:8px;margin-bottom:7px;}
   .frow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:4px;} .frow:last-child{margin-bottom:0;} .frow-l{font-size:10px;color:var(--c-text3);width:38px;text-transform:uppercase;flex-shrink:0;}
+  /* Events too close to separate by zooming, listed to pick from. */
+  .grp-panel{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .grp-panel .chip{display:inline-flex;align-items:center;padding:5px 10px;font-size:12px;}
   .chip{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:14px;padding:3px 9px;font-size:11px;cursor:pointer;}
   .chip.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;} .cal-head b{font-size:12px;} .cal-head button{background:none;border:none;color:#93c5fd;font-size:17px;cursor:pointer;padding:0 5px;}
