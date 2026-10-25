@@ -5,6 +5,36 @@ export const STYLES = `
   /* The hidden attribute loses to any class that sets display, which kept the
      timeline's Back button on screen with nothing to go back to. */
   [hidden]{display:none !important;}
+  /* ── PTZ ── On the picture, bottom right, above the player's own control
+     bar; under it when the picture is small (ptz-below). On a phone the
+     timeline also makes way (narrow). */
+  .ptz-pad{position:absolute;right:12px;bottom:48px;z-index:7;display:flex;align-items:center;gap:10px;}
+  .ptz-zoom{display:flex;flex-direction:column;gap:8px;}
+  .pbtn{background:rgba(15,21,40,.72);border:1px solid rgba(255,255,255,.18);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;transition:background .12s,transform .08s;padding:0;}
+  .pbtn:focus-visible{outline:2px solid #93c5fd;outline-offset:2px;}
+  .pbtn.on{background:var(--c-acc);border-color:var(--c-acc);transform:scale(.96);}
+  .pbtn svg{width:20px;height:20px;}
+  .ptz-zoom .pbtn{width:40px;height:40px;border-radius:50%;font-size:20px;font-weight:600;line-height:1;}
+  .ptz-dpad{position:relative;width:132px;height:132px;border-radius:50%;background:rgba(15,21,40,.55);border:1px solid rgba(255,255,255,.14);}
+  .ptz-dpad .pbtn{position:absolute;width:44px;height:44px;border-radius:12px;}
+  .ptz-dpad .up{top:6px;left:43px}.ptz-dpad .down{bottom:6px;left:43px}.ptz-dpad .left{left:6px;top:43px}.ptz-dpad .right{right:6px;top:43px}
+  .ptz-dpad .hub{position:absolute;left:51px;top:51px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);}
+  /* PTZ is a panel that opens and closes, so the button shows it is open. */
+  #sc-ptz[aria-pressed="true"]{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
+  .ptz-close{display:none;}
+  .ptz-presets{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px 2px;}
+  .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
+  .ptz-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);margin-right:4px;}
+  .card.ptz-below .ptz-pad{position:relative;right:auto;bottom:auto;justify-content:center;gap:18px;padding:12px 0 2px;}
+  .card.ptz-below .pbtn{background:var(--c-bg-panel);border-color:var(--c-border2);color:var(--c-text);}
+  .card.ptz-below .pbtn.on{background:var(--c-acc);border-color:var(--c-acc);color:#fff;}
+  .card.ptz-below .ptz-dpad{background:var(--c-bg-panel);border-color:var(--c-border2);}
+  .card.ptz-below .ptz-dpad .hub{background:var(--c-border2);}
+  .card.ptz-below .ptz-zoom{flex-direction:row;}
+  /* While steering on a phone the timeline makes way; the cross brings it back. */
+  .card.narrow .ptz-close{display:flex;position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;font-size:15px;}
+  .card.narrow.ptz-open .tl-sec{display:none;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
 

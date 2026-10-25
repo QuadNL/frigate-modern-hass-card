@@ -94,6 +94,7 @@ default_view: single     # or 'grid'
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
+| `ptz` | boolean | `true` | Pan, tilt and zoom controls for cameras that support them. Set `false` on the card or on one camera to hide them |
 | `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
 
 ### Grid layout
@@ -157,6 +158,39 @@ that way:
 
 ```yaml
 events_collapsed: true
+```
+
+### PTZ cameras
+
+A camera that Frigate can steer gets a **PTZ** button in the single view. It
+shows a direction pad, zoom and the camera's presets, whichever the camera
+supports. Hold a direction to move and let go to stop; a short tap nudges.
+
+Nothing to configure in the card. Frigate has to reach the camera over ONVIF:
+
+```yaml
+# frigate config
+cameras:
+  garden:
+    onvif:
+      host: 192.168.1.20
+      port: 80
+      user: admin
+      password: ...
+```
+
+Presets are made in the camera's own app, and Frigate reads them when it
+connects to the camera, so a new preset appears after a Frigate restart. The
+controls go through the integration's `frigate.ptz` action, which needs
+Frigate's MQTT connection in Home Assistant.
+
+To hide them, for a wall display for instance:
+
+```yaml
+ptz: false          # the whole card
+cameras:
+  - entity: camera.garden
+    ptz: false      # or one camera
 ```
 
 ## Low-latency live view with go2rtc

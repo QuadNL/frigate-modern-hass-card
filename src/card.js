@@ -37,7 +37,7 @@ export class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false }));
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
@@ -75,6 +75,10 @@ export class FrigateModernHassCard extends HTMLElement {
       // Logs why the live view chose what it chose. Off unless asked for, so it
       // can stay in the code rather than being bolted on during every hunt.
       debug: config.debug === true,
+      // Pan, tilt and zoom controls for cameras whose Frigate reports PTZ over
+      // ONVIF. On by default since nothing shows for a camera without it; off
+      // for a wall display nobody should be steering cameras from.
+      ptz: config.ptz !== false,
       // A grid on a phone is a row of pictures too small to see anything in, so
       // it stacks by default. Off is for the deliberate case: two cameras side
       // by side, or a small grid as an overview.
@@ -139,6 +143,8 @@ export class FrigateModernHassCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._ptzStop('card left the page');
+    this._unwatchPtz();
     this._suspended = this._started;
     this._resumeRotate = !!this._rotateTimer;
     this._resumeAtNow = this._started && this._isNowWindow();
@@ -160,6 +166,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (!this._config || !this._hass) return;
     this._dbg('reattached to the page, restoring what was stopped on leaving');
     this._ro?.observe(this);
+    this._watchPtz();
     this._subscribe();
     this._startRefresh();
     // Watching live when you left: carry the window on to now, or the card comes
@@ -177,6 +184,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (this._resumeRotate) this._startRotate();
   }
   async _start() {
+    this._watchPtz();
     // Before any awaits: the layout classes decide the stream's size, and
     // without them the card renders 16:9 across its full width — briefly
     // enormous on a wide dashboard.
@@ -288,6 +296,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const token = this._engineSeq;
     const stateObj = this._hlsStateObj(entity);
     if (!stateObj) return;
+    if (this._config.ptz) this._loadPtz(entity);
 
     if (this._config.live_provider === 'go2rtc') {
       const t0 = Date.now();
@@ -812,6 +821,172 @@ export class FrigateModernHassCard extends HTMLElement {
   // Single view uses the player's own native controls for mute and fullscreen.
   // Grid slots can't (their streams are pointer-events:none so slot clicks
   // still select the camera), so those keep the card's fullscreen button.
+  // ── PTZ ───────────────────────────────────────────────────
+  // Frigate reports per camera what it can steer, read over ONVIF; the card
+  // shows only that, and only in the single view. Commands go through the
+  // integration's frigate.ptz service, which publishes them over MQTT.
+  //
+  // A move does not stop by itself: move_left turns the camera until a stop
+  // arrives. So every way a press can end sends one, and a missed stop is the
+  // failure this block is built around.
+
+  // Asked once per camera and kept while the card is open. No ONVIF, an error
+  // or an older integration all mean the same here: no PTZ controls.
+  async _loadPtz(entity) {
+    const cc = this._camCache[entity];
+    if (!cc?.clientId || cc.ptz !== undefined) return;
+    cc.ptz = null;
+    try {
+      const r = await this._ws({ type: 'frigate/ptz/info', instance_id: cc.clientId, camera: cc.cam });
+      const features = Array.isArray(r?.features) ? r.features : [];
+      const presets = Array.isArray(r?.presets) ? r.presets
+        : (r?.presets && typeof r.presets === 'object' ? Object.keys(r.presets) : []);
+      cc.ptz = { pt: features.includes('pt'), zoom: features.includes('zoom'), presets: presets.map(String) };
+    } catch (_) { cc.ptz = null; }
+    this._dbg('ptz info', entity, cc.ptz);
+    if (entity === this._activeCam?.entity) { this._renderStreamCtrl(); this._renderPtz(); }
+  }
+  // What the active camera can do, or null when there is nothing to show.
+  _ptzCaps() {
+    if (!this._config?.ptz || this._viewMode !== 'single') return null;
+    const cam = this._activeCam; if (!cam || cam.ptz === false) return null;
+    const p = this._camCache[cam.entity]?.ptz;
+    return p && (p.pt || p.zoom || p.presets.length) ? p : null;
+  }
+  _ptzShow() {
+    if (!this._ptzCaps()) return;
+    this._ptzOpen = true;
+    this._renderStreamCtrl(); this._renderPtz();
+  }
+  _ptzClose(why) {
+    this._ptzStop(why);
+    if (!this._ptzOpen) return;
+    this._ptzOpen = false;
+    this._renderStreamCtrl(); this._renderPtz();
+  }
+  _renderPtz() {
+    const q = sel => this.shadowRoot.querySelector(sel);
+    const caps = this._ptzCaps();
+    const open = !!(caps && this._ptzOpen);
+    if (!open) this._ptzOpen = false;
+    q('.card')?.classList.toggle('ptz-open', open);
+    const pad = q('#ptz-pad'), pre = q('#ptz-presets');
+    if (pad) {
+      pad.hidden = !open || !(caps.pt || caps.zoom);
+      const dpad = q('#ptz-dpad'), zoom = q('#ptz-zoom');
+      if (dpad) dpad.hidden = !caps?.pt;
+      if (zoom) zoom.hidden = !caps?.zoom;
+    }
+    if (pre) {
+      pre.hidden = !open || !caps.presets.length;
+      const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      pre.innerHTML = open && caps.presets.length
+        ? '<span class="ptz-cap">Presets</span>' + caps.presets.map(n => `<button class="chip" data-ptz-preset="${esc(n)}">${esc(n)}</button>`).join('')
+        : '';
+    }
+    this._placePtz();
+  }
+  // On a large picture the pad sits on it; on a small one, under it. What
+  // counts is the picture, not the card: a wide card with the events panel open
+  // still has a small picture, and a pad on top of that covers most of it.
+  // Moving the node is enough: its listeners are on the pad and travel with it.
+  _placePtz() {
+    const q = sel => this.shadowRoot?.querySelector(sel);
+    const pad = q('#ptz-pad'), wrap = q('#eng-wrap'), pre = q('#ptz-presets'), card = q('.card');
+    if (!pad || !wrap || !pre || !card) return;
+    const w = wrap.clientWidth;
+    const below = w > 0 ? w < PHONE_PX : card.classList.contains('narrow');
+    card.classList.toggle('ptz-below', below);
+    if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
+    else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
+  }
+  _wirePtz() {
+    const pad = this.shadowRoot.querySelector('#ptz-pad');
+    if (!pad || pad._wired) return; pad._wired = true;
+    // The picture changes size without the card doing so, when the events
+    // panel slides in or out, so watch the picture itself.
+    const wrap = this.shadowRoot.querySelector('#eng-wrap');
+    if (wrap && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this._placePtz()).observe(wrap);
+    const target = e => e.target.closest?.('[data-ptz]');
+    pad.addEventListener('pointerdown', e => {
+      const b = target(e); if (!b) return;
+      e.preventDefault();
+      try { b.setPointerCapture(e.pointerId); } catch (_) {}
+      const [action, arg] = b.dataset.ptz.split(':');
+      this._ptzStart(action, arg);
+    });
+    pad.addEventListener('pointerup', e => { if (target(e)) this._ptzRelease('released'); });
+    pad.addEventListener('pointercancel', e => { if (target(e)) this._ptzStop('gesture cancelled'); });
+    pad.addEventListener('lostpointercapture', e => { if (target(e) && this._ptzMove?.held) this._ptzStop('pointer lost'); });
+    pad.addEventListener('contextmenu', e => { if (target(e)) e.preventDefault(); }); // long press on a phone
+    // Keyboard, while focus is in the controls.
+    const keys = { ArrowLeft: 'move:left', ArrowRight: 'move:right', ArrowUp: 'move:up', ArrowDown: 'move:down', '+': 'zoom:in', '=': 'zoom:in', '-': 'zoom:out' };
+    pad.addEventListener('keydown', e => {
+      if (e.key === 'Escape') return this._ptzClose('closed with Escape');
+      const k = keys[e.key]; if (!k || e.repeat) return;
+      e.preventDefault(); this._ptzStart(...k.split(':'));
+    });
+    pad.addEventListener('keyup', e => { if (keys[e.key]) this._ptzRelease('key released'); });
+  }
+  // Leaving the page or the window stops a move in progress.
+  _watchPtz() {
+    if (this._ptzWatch) return;
+    this._ptzWatch = () => { if (document.hidden) this._ptzStop('page hidden'); };
+    this._ptzBlur = () => this._ptzStop('window lost focus');
+    document.addEventListener('visibilitychange', this._ptzWatch);
+    window.addEventListener('blur', this._ptzBlur);
+  }
+  _unwatchPtz() {
+    if (!this._ptzWatch) return;
+    document.removeEventListener('visibilitychange', this._ptzWatch);
+    window.removeEventListener('blur', this._ptzBlur);
+    this._ptzWatch = this._ptzBlur = null;
+  }
+  _ptzStart(action, arg) {
+    if (this._ptzMove) this._ptzStop('new press');
+    const entity = this._activeCam?.entity; if (!entity) return;
+    // The camera that was told to move is the one that gets the stop, even if
+    // the card has moved on to another camera since.
+    const m = { action, arg, entity, t0: Date.now(), held: true };
+    m.safety = setTimeout(() => this._ptzStop('safety stop after 10 s'), 10000);
+    this._ptzMove = m;
+    this._ptzSend(entity, action, arg);
+    this._ptzLight(`${action}:${arg}`);
+  }
+  // A quick tap still gets a short nudge before the stop.
+  _ptzRelease(why) {
+    const m = this._ptzMove; if (!m) return;
+    m.held = false;
+    const left = 300 - (Date.now() - m.t0);
+    if (left > 0) {
+      if (!m.nudge) m.nudge = setTimeout(() => { if (this._ptzMove === m) this._ptzStop('short tap'); }, left);
+      return;
+    }
+    this._ptzStop(why);
+  }
+  _ptzStop(why) {
+    const m = this._ptzMove; if (!m) return;
+    clearTimeout(m.safety); clearTimeout(m.nudge);
+    this._ptzMove = null;
+    this._ptzLight('');
+    this._ptzSend(m.entity, 'stop', '', why);
+  }
+  _ptzSend(entity, action, argument, why = '') {
+    if (!entity || !this._hass) return;
+    this._dbg('ptz', action, argument || '', why);
+    const data = argument ? { action, argument } : { action };
+    Promise.resolve()
+      .then(() => this._hass.callService('frigate', 'ptz', data, { entity_id: entity }))
+      .catch(err => {
+        // Once per card: a failing service fails for every press after it too.
+        if (this._ptzErrShown) return; this._ptzErrShown = true;
+        this._toast(`PTZ did not respond (${err?.message || err}). It needs Frigate's MQTT connection in Home Assistant.`, 6000);
+      });
+  }
+  _ptzLight(key) {
+    this.shadowRoot?.querySelectorAll('[data-ptz]').forEach(b => b.classList.toggle('on', b.dataset.ptz === key));
+  }
+
   _renderStreamCtrl() {
     const bar = this.shadowRoot.querySelector('#stream-ctrl-bar'); if (!bar) return;
     const inGrid = this._viewMode === 'grid';
@@ -828,7 +1003,10 @@ export class FrigateModernHassCard extends HTMLElement {
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
-    bar.innerHTML = `${grid}${fs}${events}`;
+    const ptz = this._ptzCaps()
+      ? `<button class="tool tool-txt" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
+      : '';
+    bar.innerHTML = `${grid}${ptz}${fs}${events}`;
     this._applyEventsCollapsed();
   }
   _applyEventsCollapsed() {
@@ -853,6 +1031,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // camera in the grid does not first start the previously active camera and
   // then immediately tear it down again.
   _setViewMode(mode, opts = {}) {
+    this._ptzClose('view changed');
     this._viewMode = mode;
     const card = this.shadowRoot.querySelector('.card');
     if (card) card.classList.toggle('grid-mode', mode === 'grid');
@@ -884,6 +1063,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── camera switching ──────────────────────────────────────
   async _switchCamera(idx) {
     if (idx === this._activeCamIdx && this._viewMode === 'single') return;
+    this._ptzClose('switched camera');
     // Clicking a cam tab while in grid mode switches to single view of that camera
     if (this._viewMode === 'grid') this._setViewMode('single', { mount: false });
     const prevEnt = this._activeCam?.entity;
@@ -1141,7 +1321,9 @@ export class FrigateModernHassCard extends HTMLElement {
                   <button class="btn back ctl-live" id="back">${ICONS.back}<span>Live</span></button>
                 </div>
 <div class="grid-label" id="play-info" hidden></div>
+<div class="ptz-pad" id="ptz-pad" hidden><div class="ptz-zoom" id="ptz-zoom"><button class="pbtn" data-ptz="zoom:in" aria-label="Zoom in">+</button><button class="pbtn" data-ptz="zoom:out" aria-label="Zoom out">−</button></div><div class="ptz-dpad" id="ptz-dpad"><div class="hub"></div><button class="pbtn up" data-ptz="move:up" aria-label="Tilt up"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z"/></svg></button><button class="pbtn down" data-ptz="move:down" aria-label="Tilt down"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button><button class="pbtn left" data-ptz="move:left" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.4 16.6 10.8 12l4.6-4.6L14 6l-6 6 6 6z"/></svg></button><button class="pbtn right" data-ptz="move:right" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z"/></svg></button></div><button class="pbtn ptz-close" id="ptz-close" aria-label="Close PTZ controls">✕</button></div>
               </div>
+              <div class="ptz-presets" id="ptz-presets" hidden></div>
               <div id="cam-grid" style="display:none"></div>
             </div>
             <!-- timeline strip — always visible below the stream/grid -->
@@ -1200,7 +1382,7 @@ export class FrigateModernHassCard extends HTMLElement {
       </ha-card>`;
     this._domCache = {}; // invalidate DOM element cache after full re-render
     this.shadowRoot.addEventListener('click', e=>this._click(e));
-    this._wireScrub(); this._wireScroll(); this._wirePinchZoom(); this._applyBrowse();
+    this._wireScrub(); this._wireScroll(); this._wirePinchZoom(); this._wirePtz(); this._applyBrowse();
     if (multiCam) this._renderCamSwitcher();
     this._applyCardStyle();
   }
@@ -1266,6 +1448,9 @@ export class FrigateModernHassCard extends HTMLElement {
       const wide = w >= 560, mobile = w < 420;
       card.classList.toggle('wide', wide);
       card.classList.toggle('mobile', mobile);
+      // Below the stacking line the PTZ controls go under the picture.
+      card.classList.toggle('narrow', w < PHONE_PX);
+      this._placePtz();
       this._applyBrowse();
       this._applyEventsCollapsed();
       // Events are grouped by on-screen distance, which a new width changes.
@@ -1314,6 +1499,10 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#back')) return this._showLive();
+    if (e.target.closest('#sc-ptz')) return this._ptzOpen ? this._ptzClose('closed') : this._ptzShow();
+    if (e.target.closest('#ptz-close')) return this._ptzClose('closed with the cross');
+    const ptzPre = e.target.closest('[data-ptz-preset]');
+    if (ptzPre) { this._ptzStop('preset chosen'); return this._ptzSend(this._activeCam?.entity, 'preset', ptzPre.dataset.ptzPreset); }
     if (e.target.closest('#sc-grid')) return this._setViewMode(this._viewMode === 'grid' ? 'single' : 'grid');
     if (e.target.closest('#sc-fs')) {
       const target = this._viewMode === 'grid'
@@ -1459,6 +1648,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._playInfo(ev);
   }
   _enter() {
+    this._ptzClose('playing a clip');
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
     this.shadowRoot.querySelector('#feed-top').style.display='flex';

@@ -46,10 +46,11 @@ const context = {
   document: {
     createElement: () => makeEl(),
     addEventListener: noop,
+    removeEventListener: noop,
     hidden: false,
     fullscreenEnabled: true,
   },
-  window: { customCards: [], navigator: { userAgent: 'node' }, addEventListener: noop },
+  window: { customCards: [], navigator: { userAgent: 'node' }, addEventListener: noop, removeEventListener: noop },
   navigator: { userAgent: 'node' },
   WebSocket: { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 },
   MediaSource: function () {},
@@ -203,7 +204,44 @@ async function recordingsLoaded() {
     if (!(card._camCache[e].recordings || []).length) fail('recordings', `${e} has no recordings after loading the grid`);
   }
 }
-recordingsLoaded()
-  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings`))
-  .catch(err => fail('recordings', err));
+// PTZ: a move never stops by itself, so every way out of it has to send one.
+async function ptz() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two', ptz: false }] });
+  const sent = [];
+  card._hass = { states: {}, callService: (d, s, data, t) => { sent.push(`${data.action}${data.argument ? '_' + data.argument : ''}@${t.entity_id}`); return Promise.resolve(); } };
+  card._viewMode = 'single'; card._activeCamIdx = 0;
+  card._camCache['camera.one'] = { cam: 'one', ptz: { pt: true, zoom: false, presets: ['garage'] } };
+  card._camCache['camera.two'] = { cam: 'two', ptz: { pt: true, zoom: true, presets: [] } };
+  card._renderStreamCtrl = () => {}; card._renderPtz = () => {};
+  if (!card._ptzCaps()) fail('ptz', 'a camera reporting pt should get controls');
+  card._activeCamIdx = 1;
+  if (card._ptzCaps()) fail('ptz', 'ptz: false on a camera should hide its controls');
+  card._camCache['camera.one'].ptz = { pt: false, zoom: false, presets: [] };
+  card._activeCamIdx = 0;
+  if (card._ptzCaps()) fail('ptz', 'a camera reporting nothing should get no controls');
+  card._camCache['camera.one'].ptz = { pt: true, zoom: true, presets: [] };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const expect = (want, what) => { if (sent.join(' ') !== want) fail('ptz', `${what}: sent "${sent.join(' ')}", expected "${want}"`); sent.length = 0; };
+
+  card._ptzStart('move', 'left'); card._ptzMove.t0 -= 1000; card._ptzRelease('released'); await wait(0);
+  expect('move_left@camera.one stop@camera.one', 'hold and release');
+  card._ptzStart('zoom', 'in'); card._ptzRelease('released'); await wait(0);
+  if (sent.includes('stop@camera.one')) fail('ptz', 'a short tap stopped before its nudge');
+  await wait(350); expect('zoom_in@camera.one stop@camera.one', 'short tap');
+  card._ptzStart('move', 'up'); card._ptzStart('move', 'down'); await wait(0);
+  expect('move_up@camera.one stop@camera.one move_down@camera.one', 'a new press stops the old move first');
+  card._ptzStop('x'); await wait(0); sent.length = 0;
+  card._ptzStart('move', 'right'); card._ptzOpen = true; card._ptzClose('closed'); await wait(0);
+  expect('move_right@camera.one stop@camera.one', 'closing the controls');
+  card._ptzStart('move', 'left'); card.disconnectedCallback(); await wait(0);
+  expect('move_left@camera.one stop@camera.one', 'the card leaving the page');
+  // The stop goes to the camera that moved, even after switching cameras.
+  card._ptzStart('move', 'left'); card._activeCamIdx = 1; card._ptzStop('switched'); await wait(0);
+  expect('move_left@camera.one stop@camera.one', 'stop after switching cameras');
+}
+
+Promise.all([recordingsLoaded(), ptz()])
+  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings, every PTZ move ends with a stop`))
+  .catch(err => fail('async tests', err));
 
