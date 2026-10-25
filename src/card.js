@@ -1335,7 +1335,8 @@ export class FrigateModernHassCard extends HTMLElement {
     }
     // Stop seek-bar clicks from bubbling up to the recording row handler
     if (e.target.closest('.rec-seek-wrap')) return;
-    const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
+    const recRow = e.target.closest('[data-rs]');
+    if (recRow) return recRow.dataset.ci != null ? this._openRecInSingle(recRow) : this._toggleRecSeek(recRow);
     const restoreSlot = e.target.closest('[data-restore-slot]');
     if (restoreSlot) { e.stopPropagation(); this._restoreGridSlot(Number(restoreSlot.dataset.restoreSlot)); return; }
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
@@ -1682,6 +1683,14 @@ export class FrigateModernHassCard extends HTMLElement {
     });
   }
   // Toggle seek bar for a recording row
+  // A recording picked in grid view plays in the single view of its camera. In
+  // the grid it started in the hidden single view player, so a tap seemed to do
+  // nothing, and the recording player's seek bar and download do not fit a tile.
+  async _openRecInSingle(row) {
+    const rs = +row.dataset.rs, re = +row.dataset.re, ci = +row.dataset.ci;
+    await this._switchCamera(ci);
+    this._showRecording(rs, re);
+  }
   _toggleRecSeek(row) {
     // Capture rs/re directly from this specific row's dataset — no shared state
     const rs = +row.dataset.rs;
@@ -2125,17 +2134,24 @@ export class FrigateModernHassCard extends HTMLElement {
     list.innerHTML=events.map(ev=>this._eventCardHTML(ev,false)).join('')+(this._exhausted?'<div class="end">— end —</div>':'<div class="more">scroll for older…</div>');
   }
   _renderRecordings(list) {
-    const recs=this._mergeRecs(this._recordings).sort((a,b)=>b.start_time-a.start_time);
+    // In grid view the list covers every camera, each row naming its camera.
+    // It used to show only whichever camera happened to be active, unnamed.
+    const all=this._eventsMode==='all';
+    let recs=[];
+    if (all) this._config.cameras.forEach((c,ci)=>{ const cc=this._camCache[c.entity]; if(cc) for(const r of this._mergeRecs(cc.recordings||[])) recs.push({...r,ci}); });
+    else recs=this._mergeRecs(this._recordings);
+    recs.sort((a,b)=>b.start_time-a.start_time);
     if(!recs.length){list.innerHTML='<div class="empty">No recordings in this window</div>';return;}
     list.innerHTML=recs.map(r=>{
       const rs=Math.floor(r.start_time), re=Math.floor(r.end_time||Date.now()/1000);
       const d=Math.max(1,re-rs); const mm=Math.floor(d/60),ss=d%60;
       const dur=`${mm?mm+'m ':''}${ss}s`;
       const seekHint = d > 300 ? ' <span class="seek-hint">· click to seek</span>' : '';
-      return `<div class="rec" data-rs="${rs}" data-re="${re}">
+      const cam = all ? `<i class="cam-dot-lbl" style="background:${this._camColor(r.ci)}"></i>${cap(camDisplayName(this._config.cameras[r.ci]))} · ` : '';
+      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all?` data-ci="${r.ci}"`:''}>
         <div class="ric">${ICONS.recordings}</div>
         <div class="rinf">
-          <div class="rt">${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
+          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
           <div class="rsub">${dur}${r.events?' · '+r.events+' ev':''}${seekHint}</div>
         </div>
         <div class="rp">▶</div>

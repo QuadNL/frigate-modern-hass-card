@@ -175,4 +175,18 @@ function timeline() {
 }
 try { timeline(); } catch (err) { fail('timeline', err); }
 
+// Recordings tab in grid view: every camera's recordings, each row naming its
+// camera so a tap can play it in that camera's single view.
+function recordingsInGrid() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  card._camCache['camera.one'] = { cam: 'one', recordings: [{ start_time: 100, end_time: 200 }] };
+  card._camCache['camera.two'] = { cam: 'two', recordings: [{ start_time: 300, end_time: 400 }] };
+  card._eventsMode = 'all';
+  let html = '';
+  card._renderRecordings({ set innerHTML(v) { html = v; } });
+  if (!/data-ci="0"/.test(html) || !/data-ci="1"/.test(html)) fail('recordings', `grid view should list both cameras, got ${html.slice(0, 200)}`);
+}
+try { recordingsInGrid(); } catch (err) { fail('recordings', err); }
+
 console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events`);
