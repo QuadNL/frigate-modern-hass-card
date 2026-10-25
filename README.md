@@ -31,8 +31,6 @@ A modern, feature-rich Lovelace card for [Frigate NVR](https://frigate.video) in
 4. Install "Frigate Modern Hass Card"
 5. Hard-refresh your browser
 
-> Once the repo is accepted in the HACS default store, you'll find it directly under HACS → Frontend without adding a custom repository.
-
 ## Manual Installation
 
 Download `frigate-modern-hass-card.js` from the [latest release](https://github.com/QuadNL/frigate-modern-hass-card/releases/latest) and place it in your `config/www/` folder.
