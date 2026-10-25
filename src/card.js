@@ -1023,7 +1023,9 @@ export class FrigateModernHassCard extends HTMLElement {
   _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
 
   async _loadWindow(replace) {
-    if (this._loading) return;
+    // A request that arrives mid-load is for a newer window: run it once this
+    // one is done instead of dropping it, or the lists stay on the old window.
+    if (this._loading) { this._loadAgain = true; return; }
     this._loading = true;
     const { clientId, cam } = this._cc(); if (!clientId||!cam) { this._loading=false; return; }
     const after=this._winStart, before=this._winEnd;
@@ -1039,6 +1041,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (ent&&this._camCache[ent]) { this._camCache[ent].events=this._events; this._camCache[ent].recordings=this._recordings; }
     if (this._tab==='reviews') await this._loadReviews();
     this._loading = false;
+    if (this._loadAgain) { this._loadAgain = false; return this._loadWindow(replace); }
     if (this._eventsMode==='all') this._loadAllCamsBackground();
     this._renderAll();
   }
@@ -1050,14 +1053,33 @@ export class FrigateModernHassCard extends HTMLElement {
       const cc = this._camCache[c.entity];
       return c.entity !== this._activeCam?.entity && cc && cc.discovered;
     });
-    await Promise.all(others.map(async c => {
-      const cc = this._camCache[c.entity];
-      try {
-        const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
-        cc.events = Array.isArray(ev) ? ev : [];
-      } catch(_) {}
-    }));
-    if (this._eventsMode==='all') this._renderList();
+    // Recordings too, for every camera in this window. Only events were fetched
+    // here, so the grid's recordings list and recording band knew a camera's
+    // recordings only if it had been the active one earlier, and then for the
+    // window of that moment: after a reload only one camera was listed.
+    const all = this._config.cameras.filter(c => this._camCache[c.entity]?.discovered);
+    const recs = new Map();
+    await Promise.all([
+      ...others.map(async c => {
+        const cc = this._camCache[c.entity];
+        try {
+          const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
+          cc.events = Array.isArray(ev) ? ev : [];
+        } catch(_) {}
+      }),
+      ...all.map(async c => {
+        const cc = this._camCache[c.entity];
+        try {
+          const r = await this._ws({type:'frigate/recordings/get',instance_id:cc.clientId,camera:cc.cam,after,before});
+          recs.set(c.entity, Array.isArray(r) ? r : []);
+        } catch(_) {}
+      }),
+    ]);
+    // The window moved while this was loading: these answers are for another
+    // window, and the load for the new one is on its way.
+    if (after !== this._winStart || before !== this._winEnd) return;
+    for (const [ent, r] of recs) this._camCache[ent].recordings = r;
+    if (this._eventsMode==='all') { this._renderList(); this._renderTimeline(); }
   }
 
   async _loadKept() {
@@ -1336,7 +1358,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // Stop seek-bar clicks from bubbling up to the recording row handler
     if (e.target.closest('.rec-seek-wrap')) return;
     const recRow = e.target.closest('[data-rs]');
-    if (recRow) return recRow.dataset.ci != null ? this._openRecInSingle(recRow) : this._toggleRecSeek(recRow);
+    if (recRow) return recRow.dataset.ci != null ? this._openRecInGridSlot(recRow) : this._toggleRecSeek(recRow);
     const restoreSlot = e.target.closest('[data-restore-slot]');
     if (restoreSlot) { e.stopPropagation(); this._restoreGridSlot(Number(restoreSlot.dataset.restoreSlot)); return; }
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
@@ -1589,16 +1611,8 @@ export class FrigateModernHassCard extends HTMLElement {
     const maxChunk = 7200;
     const chunkEnd = Math.min(e, start + maxChunk);
     const clipDur = chunkEnd - start; // real clip length in seconds
-    // Frigate's dynamic recording/start/.../end/... endpoint concatenates
-    // segments on the fly and never supports Range requests (chunked
-    // transfer, no Accept-Ranges/206 at any layer), and Safari's <video>
-    // refuses to play a progressive MP4 without Range support. Route Safari
-    // to the HLS time-range playlist instead (same fix as _resolveClipUrl
-    // uses for event clips); other browsers keep the existing MP4 path.
-    const recPath = this._hlsNative()
-      ? `vod/${cam}/start/${start}/end/${chunkEnd}/index.m3u8`
-      : `recording/${cam}/start/${start}/end/${chunkEnd}`;
-    const url=await this._signed(`/api/frigate/${clientId}/${recPath}`);
+    // _recUrl picks MP4 or, on Safari, HLS.
+    const url=await this._recUrl(clientId, cam, start, chunkEnd);
     if (this._playSeq !== token) return;
     const fromLbl = seekFrom
       ? `<div class="seek-from-lbl">▶ Playing from ${this._time(seekFrom)}</div>`
@@ -1683,13 +1697,37 @@ export class FrigateModernHassCard extends HTMLElement {
     });
   }
   // Toggle seek bar for a recording row
-  // A recording picked in grid view plays in the single view of its camera. In
-  // the grid it started in the hidden single view player, so a tap seemed to do
-  // nothing, and the recording player's seek bar and download do not fit a tile.
-  async _openRecInSingle(row) {
+  // Frigate's dynamic recording/start/.../end/... endpoint concatenates
+  // segments on the fly and never supports Range requests (chunked transfer, no
+  // Accept-Ranges/206 at any layer), and Safari's <video> refuses to play a
+  // progressive MP4 without Range support. Safari gets the HLS time-range
+  // playlist instead, the same fix _resolveClipUrl uses for event clips; other
+  // browsers keep the MP4 path.
+  _recUrl(clientId, cam, start, end) {
+    const path = this._hlsNative()
+      ? `vod/${cam}/start/${start}/end/${end}/index.m3u8`
+      : `recording/${cam}/start/${start}/end/${end}`;
+    return this._signed(`/api/frigate/${clientId}/${path}`);
+  }
+  // A recording picked in grid view plays in its camera's tile, as a clip does.
+  // It used to start in the single view player, hidden behind the grid. The
+  // video's own controls seek; downloading stays in the single view.
+  async _openRecInGridSlot(row) {
     const rs = +row.dataset.rs, re = +row.dataset.re, ci = +row.dataset.ci;
-    await this._switchCamera(ci);
-    this._showRecording(rs, re);
+    const cam = this._config.cameras[ci], cc = cam && this._camCache[cam.entity];
+    const slot = this.shadowRoot.querySelectorAll('#cam-grid .grid-slot:not(.placeholder)')[ci];
+    if (!slot || !cc) return;
+    this._stopSlotPlayer(slot);
+    this._revealPlayer(slot);
+    // Same two hour cap as the single view: Frigate builds the file on request.
+    const url = await this._recUrl(cc.clientId, cc.cam, rs, Math.min(re, rs + 7200));
+    slot.innerHTML = `
+        <video src="${url}" controls playsinline
+          style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
+        ${this._gridLabel(ci, { label: 'Recording', start_time: rs })}
+        <button class="btn back grid-close-btn" data-restore-slot="${ci}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
+    this._playMedia(slot.querySelector('video'));
+    this._fadeLabel(slot.querySelector('.grid-label'));
   }
   _toggleRecSeek(row) {
     // Capture rs/re directly from this specific row's dataset — no shared state
@@ -2146,7 +2184,7 @@ export class FrigateModernHassCard extends HTMLElement {
       const rs=Math.floor(r.start_time), re=Math.floor(r.end_time||Date.now()/1000);
       const d=Math.max(1,re-rs); const mm=Math.floor(d/60),ss=d%60;
       const dur=`${mm?mm+'m ':''}${ss}s`;
-      const seekHint = d > 300 ? ' <span class="seek-hint">· click to seek</span>' : '';
+      const seekHint = d > 300 && !all ? ' <span class="seek-hint">· click to seek</span>' : '';
       const cam = all ? `<i class="cam-dot-lbl" style="background:${this._camColor(r.ci)}"></i>${cap(camDisplayName(this._config.cameras[r.ci]))} · ` : '';
       return `<div class="rec" data-rs="${rs}" data-re="${re}"${all?` data-ci="${r.ci}"`:''}>
         <div class="ric">${ICONS.recordings}</div>

@@ -189,4 +189,21 @@ function recordingsInGrid() {
 }
 try { recordingsInGrid(); } catch (err) { fail('recordings', err); }
 
-console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events`);
+// Grid view loads every camera's recordings for the window on screen, not only
+// the active camera's.
+async function recordingsLoaded() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  for (const [e, c] of [['camera.one', 'one'], ['camera.two', 'two']]) card._camCache[e] = { cam: c, clientId: 'frigate', discovered: true };
+  card._activeCamIdx = 0; card._eventsMode = 'all'; card._winStart = 0; card._winEnd = 1000;
+  card._ws = async q => (q.type === 'frigate/recordings/get' ? [{ start_time: 10, end_time: 20, camera: q.camera }] : []);
+  card._renderList = () => {}; card._renderTimeline = () => {};
+  await card._loadAllCamsBackground();
+  for (const e of ['camera.one', 'camera.two']) {
+    if (!(card._camCache[e].recordings || []).length) fail('recordings', `${e} has no recordings after loading the grid`);
+  }
+}
+recordingsLoaded()
+  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings`))
+  .catch(err => fail('recordings', err));
+
