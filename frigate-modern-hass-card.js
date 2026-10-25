@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0';
+const VERSION = '1.3.1-dev.1';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -2339,6 +2339,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (!slot) { this._open(id); return; } // fallback to single view
 
     this._stopSlotPlayer(slot); // don't leave the tile's stream running headless
+    this._revealPlayer(slot);
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
     const camName = cap((ev.camera||'').replace(/_/g,' '));
     if (isSnap) {
@@ -2369,6 +2370,22 @@ class FrigateModernHassCard extends HTMLElement {
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
     this.shadowRoot.querySelector('#feed-top').style.display='flex';
+    this._revealPlayer(this.shadowRoot.querySelector('#eng-wrap'));
+  }
+  // On a phone the player sits above the list, so picking a clip far down the
+  // list started it off screen and left you looking at the list. Scroll back up
+  // to it, but only when its top is actually out of view: on a wide card the
+  // list sits beside the player, and jumping the page on every click there would
+  // be worse than the bug.
+  _revealPlayer(el) {
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const top = el.getBoundingClientRect().top;
+      if (top >= 0 && top <= window.innerHeight - 80) return;
+      // Clear Home Assistant's fixed header rather than sliding under it.
+      el.style.scrollMarginTop = '72px';
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
   _showLive() {
     this._playing=null;
@@ -2471,7 +2488,7 @@ class FrigateModernHassCard extends HTMLElement {
     const clipDur = chunkEnd - start; // real clip length in seconds
     // Frigate's dynamic recording/start/.../end/... endpoint concatenates
     // segments on the fly and never supports Range requests (chunked
-    // transfer, no Accept-Ranges/206 at any layer) — Safari's <video>
+    // transfer, no Accept-Ranges/206 at any layer), and Safari's <video>
     // refuses to play a progressive MP4 without Range support. Route Safari
     // to the HLS time-range playlist instead (same fix as _resolveClipUrl
     // uses for event clips); other browsers keep the existing MP4 path.
