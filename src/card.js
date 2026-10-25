@@ -853,8 +853,15 @@ export class FrigateModernHassCard extends HTMLElement {
     const p = this._camCache[cam.entity]?.ptz;
     return p && (p.pt || p.zoom || p.presets.length) ? p : null;
   }
+  // The new badge on the PTZ button stays until it has been opened once, which
+  // this browser remembers. Storage can be unavailable; then it just shows.
+  // Without storage, a private window for instance, the card still remembers
+  // for as long as it is open.
+  _ptzSeen() { if (this._ptzSeenHere) return true; try { return localStorage.getItem('fmhc-ptz-seen') === '1'; } catch (_) { return false; } }
   _ptzShow() {
     if (!this._ptzCaps()) return;
+    this._ptzSeenHere = true;
+    try { localStorage.setItem('fmhc-ptz-seen', '1'); } catch (_) {}
     this._ptzOpen = true;
     this._renderStreamCtrl(); this._renderPtz();
   }
@@ -895,7 +902,9 @@ export class FrigateModernHassCard extends HTMLElement {
     const pad = q('#ptz-pad'), wrap = q('#eng-wrap'), pre = q('#ptz-presets'), card = q('.card');
     if (!pad || !wrap || !pre || !card) return;
     const w = wrap.clientWidth;
-    const below = w > 0 ? w < PHONE_PX : card.classList.contains('narrow');
+    // In fullscreen only the picture is on screen, so the pad has to be on it.
+    const inFs = (this.shadowRoot.fullscreenElement || this.shadowRoot.webkitFullscreenElement) === wrap;
+    const below = !inFs && (w > 0 ? w < PHONE_PX : card.classList.contains('narrow'));
     card.classList.toggle('ptz-below', below);
     if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
     else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
@@ -999,12 +1008,16 @@ export class FrigateModernHassCard extends HTMLElement {
     const grid = this._config.cameras.length > 1
       ? `<button class="tool tool-txt" id="sc-grid" title="${inGrid ? 'Show one camera' : 'Show all cameras'}">${inGrid ? ICONS.live : ICONS.grid}<span>${inGrid ? 'Single' : 'Grid'}</span></button>`
       : '';
-    const fs = inGrid ? `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>` : '';
+    // The card's own fullscreen, in both views. The player has one too, but it
+    // takes only the video, without the card's controls on it: PTZ, the Live
+    // button and the labels stayed behind. On an iPhone it still falls back to
+    // the video's own fullscreen, the only kind Safari offers there.
+    const fs = `<button class="tool" id="sc-fs" title="Fullscreen">${ICONS.expand}</button>`;
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
     const ptz = this._ptzCaps()
-      ? `<button class="tool tool-txt" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
+      ? `<button class="tool tool-txt${this._ptzSeen() ? '' : ' is-new'}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
       : '';
     bar.innerHTML = `${grid}${ptz}${fs}${events}`;
     this._applyEventsCollapsed();
@@ -1453,8 +1466,9 @@ export class FrigateModernHassCard extends HTMLElement {
       this._placePtz();
       this._applyBrowse();
       this._applyEventsCollapsed();
-      // Events are grouped by on-screen distance, which a new width changes.
-      this._renderTimeline();
+      // Events are grouped by on-screen distance, which a new width changes,
+      // and the range drops today's date on a phone.
+      this._renderTimeline(); this._renderRange();
       if (wide) this._syncColHeight();
       // Crossing a width where the automatic column count changes (rotating a
       // phone, resizing a window) needs the grid rebuilt: the number of
@@ -2189,7 +2203,12 @@ export class FrigateModernHassCard extends HTMLElement {
     if (back) back.hidden = !(this._zoomStack && this._zoomStack.length);
     const el=this._$('#tl-range'); if(!el) return;
     const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
-    if(span<=DAY+60) el.textContent=`${this._day(this._winEnd)} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
+    // On a phone today's date is left out: it is implied, and without it the
+    // range and the toolbar fit on one line.
+    const narrow=this.shadowRoot.querySelector('.card')?.classList.contains('narrow');
+    const today=new Date(this._winEnd*1000).toDateString()===new Date().toDateString();
+    const day=narrow&&today?'':`${this._day(this._winEnd)} · `;
+    if(span<=DAY+60) el.textContent=`${day}${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
     else el.textContent=`${this._day(this._winStart)} – ${this._isNowWindow()?'now':this._day(this._winEnd)}`;
   }
   _renderLegend() {

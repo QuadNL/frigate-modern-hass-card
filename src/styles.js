@@ -33,7 +33,7 @@ export const STYLES = `
   .card.ptz-below .ptz-dpad .hub{background:var(--c-border2);}
   .card.ptz-below .ptz-zoom{flex-direction:row;}
   /* While steering on a phone the timeline makes way; the cross brings it back. */
-  .card.narrow .ptz-close{display:flex;position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;font-size:15px;}
+  .card.narrow.ptz-below .ptz-close{display:flex;position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;font-size:15px;}
   .card.narrow.ptz-open .tl-sec{display:none;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
@@ -246,6 +246,13 @@ export const STYLES = `
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
   /* Labelled tool: the view switch is worth reading, not just recognising. */
   .tool-txt{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;font-size:11px;font-weight:600;}
+  /* On a phone the toolbar has to share one line with the range: PTZ keeps
+     its icon and badge, labelled buttons get a little less padding. */
+  .card.narrow .tool-txt{padding:4px 7px;}
+  .card.narrow #sc-ptz span{display:none;}
+  .tool.is-new{position:relative;}
+  .tool.is-new::after{content:'new';position:absolute;top:-7px;right:-6px;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    background:var(--c-acc);color:#fff;border-radius:6px;padding:1px 4px;line-height:1.3;pointer-events:none;}
   .tl-track{position:relative;height:30px;background:var(--c-bg-panel);border-radius:6px;overflow:hidden;cursor:grab;touch-action:pan-y;}
   .tl-track.grab{cursor:grabbing;}
   .tl-track::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12));}
