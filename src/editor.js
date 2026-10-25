@@ -320,7 +320,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
     if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
+    const own = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 0;
+    const min = own || (width < 500 ? 100 : 200); // same floors as the card
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols

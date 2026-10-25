@@ -19,6 +19,10 @@ const MIN_TILE_PX = 200;
 // so every phone falls under it: an Android phone is 412 CSS px wide, the
 // largest iPhone 430.
 const PHONE_PX = 500;
+// Narrowest a tile may get on a phone when stacking is switched off. Turning it
+// off asks for a grid there, and the general floor above would make a 375px
+// phone a single column again, quietly undoing that choice.
+const PHONE_MIN_TILE_PX = 100;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -1757,11 +1761,14 @@ class FrigateModernHassCard extends HTMLElement {
   }
   _gridColumns(n) {
     const layout = this._activeLayout();
-    const min = this._minTilePx();
     // On a phone, stacking wins over everything else, a chosen layout included.
     // Four tiles on a 412px screen is not a grid, it is four thumbnails.
     const w0 = this._cardWidth || this.offsetWidth || 0;
-    if (this._config.stack_on_mobile && w0 && w0 < PHONE_PX) return 1;
+    const phone = !!w0 && w0 < PHONE_PX;
+    if (this._config.stack_on_mobile && phone) return 1;
+    // Stacking switched off is a request for a grid on the phone, so the floor
+    // there is a phone-sized one unless the config names its own.
+    const min = phone && !this._config.min_tile_width ? PHONE_MIN_TILE_PX : this._minTilePx();
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;
@@ -3451,7 +3458,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
     if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
+    const own = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 0;
+    const min = own || (width < 500 ? 100 : 200); // same floors as the card
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols

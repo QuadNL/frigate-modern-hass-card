@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, camSolid, isHex, REC_NEUTRAL, MIN_TILE_PX, PHONE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+         labelColor, camSolid, isHex, REC_NEUTRAL, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -646,11 +646,14 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   _gridColumns(n) {
     const layout = this._activeLayout();
-    const min = this._minTilePx();
     // On a phone, stacking wins over everything else, a chosen layout included.
     // Four tiles on a 412px screen is not a grid, it is four thumbnails.
     const w0 = this._cardWidth || this.offsetWidth || 0;
-    if (this._config.stack_on_mobile && w0 && w0 < PHONE_PX) return 1;
+    const phone = !!w0 && w0 < PHONE_PX;
+    if (this._config.stack_on_mobile && phone) return 1;
+    // Stacking switched off is a request for a grid on the phone, so the floor
+    // there is a phone-sized one unless the config names its own.
+    const min = phone && !this._config.min_tile_width ? PHONE_MIN_TILE_PX : this._minTilePx();
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;

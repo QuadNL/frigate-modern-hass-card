@@ -19,6 +19,10 @@ export const MIN_TILE_PX = 200;
 // so every phone falls under it: an Android phone is 412 CSS px wide, the
 // largest iPhone 430.
 export const PHONE_PX = 500;
+// Narrowest a tile may get on a phone when stacking is switched off. Turning it
+// off asks for a grid there, and the general floor above would make a 375px
+// phone a single column again, quietly undoing that choice.
+export const PHONE_MIN_TILE_PX = 100;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {
