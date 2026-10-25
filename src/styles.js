@@ -5,10 +5,10 @@ export const STYLES = `
   /* The hidden attribute loses to any class that sets display, which kept the
      timeline's Back button on screen with nothing to go back to. */
   [hidden]{display:none !important;}
-  /* ── PTZ ── On the picture, bottom right, above the player's own control
-     bar; under it when the picture is small (ptz-below). On a phone the
-     timeline also makes way (narrow). */
-  .ptz-pad{position:absolute;right:12px;bottom:48px;z-index:7;display:flex;align-items:center;gap:10px;}
+  /* ── PTZ ── On the picture, right and centred, clear of the player's control
+     bar along the bottom and the label bottom left; under the picture when it
+     is small (ptz-below). On a phone the timeline also makes way (narrow). */
+  .ptz-pad{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:7;display:flex;align-items:center;gap:10px;}
   .ptz-zoom{display:flex;flex-direction:column;gap:8px;}
   .pbtn{background:rgba(15,21,40,.72);border:1px solid rgba(255,255,255,.18);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
     -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;transition:background .12s,transform .08s;padding:0;}
@@ -26,7 +26,7 @@ export const STYLES = `
   .ptz-presets{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px 2px;}
   .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
   .ptz-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);margin-right:4px;}
-  .card.ptz-below .ptz-pad{position:relative;right:auto;bottom:auto;justify-content:center;gap:18px;padding:12px 0 2px;}
+  .card.ptz-below .ptz-pad{position:relative;right:auto;top:auto;transform:none;justify-content:center;gap:18px;padding:12px 0 2px;}
   .card.ptz-below .pbtn{background:var(--c-bg-panel);border-color:var(--c-border2);color:var(--c-text);}
   .card.ptz-below .pbtn.on{background:var(--c-acc);border-color:var(--c-acc);color:#fff;}
   .card.ptz-below .ptz-dpad{background:var(--c-bg-panel);border-color:var(--c-border2);}

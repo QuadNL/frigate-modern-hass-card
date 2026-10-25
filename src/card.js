@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+         labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, PTZ_OVERLAY_MIN_PX, PTZ_IS_NEW, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -904,7 +904,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const w = wrap.clientWidth;
     // In fullscreen only the picture is on screen, so the pad has to be on it.
     const inFs = (this.shadowRoot.fullscreenElement || this.shadowRoot.webkitFullscreenElement) === wrap;
-    const below = !inFs && (w > 0 ? w < PHONE_PX : card.classList.contains('narrow'));
+    const below = !inFs && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
     card.classList.toggle('ptz-below', below);
     if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
     else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
@@ -1015,7 +1015,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
     const ptz = this._ptzCaps()
-      ? `<button class="tool tool-txt${this._ptzSeen() ? '' : ' is-new'}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
+      ? `<button class="tool tool-txt${PTZ_IS_NEW && !this._ptzSeen() ? ' is-new' : ''}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
       : '';
     bar.innerHTML = `${grid}${ptz}${fs}${events}`;
     this._applyEventsCollapsed();

@@ -23,6 +23,13 @@ export const PHONE_PX = 500;
 // off asks for a grid there, and the general floor above would make a 375px
 // phone a single column again, quietly undoing that choice.
 export const PHONE_MIN_TILE_PX = 100;
+// A picture narrower than this gets the PTZ controls under it instead of on
+// it. On a smaller picture a centred pad would reach into the player's own
+// control bar, which takes the bottom 90px or so.
+export const PTZ_OVERLAY_MIN_PX = 560;
+// The PTZ button's "new" badge belongs to the release that introduced it.
+// From 1.4.1 on it never shows, not even for someone who never saw it.
+export const PTZ_IS_NEW = /^1\.4\.0(-|$)/.test(VERSION);
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {

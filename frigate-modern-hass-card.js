@@ -23,6 +23,13 @@ const PHONE_PX = 500;
 // off asks for a grid there, and the general floor above would make a 375px
 // phone a single column again, quietly undoing that choice.
 const PHONE_MIN_TILE_PX = 100;
+// A picture narrower than this gets the PTZ controls under it instead of on
+// it. On a smaller picture a centred pad would reach into the player's own
+// control bar, which takes the bottom 90px or so.
+const PTZ_OVERLAY_MIN_PX = 560;
+// The PTZ button's "new" badge belongs to the release that introduced it.
+// From 1.4.1 on it never shows, not even for someone who never saw it.
+const PTZ_IS_NEW = /^1\.4\.0(-|$)/.test(VERSION);
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -132,10 +139,10 @@ const STYLES = `
   /* The hidden attribute loses to any class that sets display, which kept the
      timeline's Back button on screen with nothing to go back to. */
   [hidden]{display:none !important;}
-  /* ── PTZ ── On the picture, bottom right, above the player's own control
-     bar; under it when the picture is small (ptz-below). On a phone the
-     timeline also makes way (narrow). */
-  .ptz-pad{position:absolute;right:12px;bottom:48px;z-index:7;display:flex;align-items:center;gap:10px;}
+  /* ── PTZ ── On the picture, right and centred, clear of the player's control
+     bar along the bottom and the label bottom left; under the picture when it
+     is small (ptz-below). On a phone the timeline also makes way (narrow). */
+  .ptz-pad{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:7;display:flex;align-items:center;gap:10px;}
   .ptz-zoom{display:flex;flex-direction:column;gap:8px;}
   .pbtn{background:rgba(15,21,40,.72);border:1px solid rgba(255,255,255,.18);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
     -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;transition:background .12s,transform .08s;padding:0;}
@@ -153,7 +160,7 @@ const STYLES = `
   .ptz-presets{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px 2px;}
   .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
   .ptz-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);margin-right:4px;}
-  .card.ptz-below .ptz-pad{position:relative;right:auto;bottom:auto;justify-content:center;gap:18px;padding:12px 0 2px;}
+  .card.ptz-below .ptz-pad{position:relative;right:auto;top:auto;transform:none;justify-content:center;gap:18px;padding:12px 0 2px;}
   .card.ptz-below .pbtn{background:var(--c-bg-panel);border-color:var(--c-border2);color:var(--c-text);}
   .card.ptz-below .pbtn.on{background:var(--c-acc);border-color:var(--c-acc);color:#fff;}
   .card.ptz-below .ptz-dpad{background:var(--c-bg-panel);border-color:var(--c-border2);}
@@ -2093,7 +2100,7 @@ class FrigateModernHassCard extends HTMLElement {
     const w = wrap.clientWidth;
     // In fullscreen only the picture is on screen, so the pad has to be on it.
     const inFs = (this.shadowRoot.fullscreenElement || this.shadowRoot.webkitFullscreenElement) === wrap;
-    const below = !inFs && (w > 0 ? w < PHONE_PX : card.classList.contains('narrow'));
+    const below = !inFs && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
     card.classList.toggle('ptz-below', below);
     if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
     else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
@@ -2204,7 +2211,7 @@ class FrigateModernHassCard extends HTMLElement {
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
     const ptz = this._ptzCaps()
-      ? `<button class="tool tool-txt${this._ptzSeen() ? '' : ' is-new'}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
+      ? `<button class="tool tool-txt${PTZ_IS_NEW && !this._ptzSeen() ? ' is-new' : ''}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
       : '';
     bar.innerHTML = `${grid}${ptz}${fs}${events}`;
     this._applyEventsCollapsed();
