@@ -134,4 +134,29 @@ function lifecycle(viewMode) {
 }
 try { lifecycle('single'); lifecycle('grid'); } catch (err) { fail('lifecycle', err); }
 
-console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach`);
+// Timeline: events too close to tell apart become one counted block, events
+// far apart stay separate ticks, and in grid view each carries its camera.
+function timeline() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  card._camCache['camera.one'] = { cam: 'one' };
+  card._camCache['camera.two'] = { cam: 'two' };
+  card._eventsMode = 'all';
+  card._winStart = 0; card._winEnd = 1000;
+  const ev = (t, cam, label = 'person') => ({ id: `${t}-x`, start_time: t, camera: cam, label });
+  // At 1000px for 1000s, 1s is 1px: three within 9px of each other, two alone.
+  card._allDisplayEvents = () => [ev(100, 'one'), ev(104, 'two'), ev(108, 'one'), ev(500, 'two'), ev(900, 'one')];
+  let html = '';
+  const track = { clientWidth: 1000, set innerHTML(v) { html = v; } };
+  card._$ = sel => (sel === '#tl-track' ? track : null);
+  card._renderTimeline();
+  const grp = html.match(/class="t-grp"[^>]*>(\d+)</g) || [];
+  const ticks = html.match(/class="t-ev"/g) || [];
+  if (grp.length !== 1 || !/>3</.test(grp[0])) fail('timeline', `expected one group of 3, got ${grp}`);
+  if (ticks.length !== 2) fail('timeline', `expected 2 separate ticks, got ${ticks.length}`);
+  if (!/data-cis="0,1"/.test(html)) fail('timeline', 'group does not name both cameras');
+  if (!/data-tick="500-x" data-cis="1"/.test(html)) fail('timeline', 'tick does not name its camera');
+}
+try { timeline(); } catch (err) { fail('timeline', err); }
+
+console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events`);

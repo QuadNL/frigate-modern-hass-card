@@ -68,6 +68,8 @@ export const CAM_COLORS = [
 ];
 // Recording band in grid view, where blue already means the first camera.
 export const REC_NEUTRAL = 'rgba(148,163,184,.35)';
+// A group of events that spans cameras or kinds, so no single colour fits.
+export const REC_GROUP = '#64748b';
 // The same colour at full strength, for ticks and legend swatches. Past eight
 // cameras the palette would repeat, so camera 9 looked like camera 1: spread
 // that many hues evenly around the wheel instead, one per camera. At sixteen the
