@@ -1310,7 +1310,7 @@ export class FrigateModernHassCard extends HTMLElement {
       slot.innerHTML = `
         <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
     } else {
       const url = await this._resolveClipUrl(ev.id);
@@ -1318,7 +1318,7 @@ export class FrigateModernHassCard extends HTMLElement {
         <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>`;
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
       this._playMedia(slot.querySelector('video'));
     }
   }

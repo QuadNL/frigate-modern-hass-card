@@ -210,8 +210,10 @@ const STYLES = `
   .grid-slot.placeholder{background:#06090f;cursor:default;}
   .grid-slot.placeholder:hover{box-shadow:none;}
   .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  .grid-close-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;}
-  .grid-close-btn:hover{background:rgba(239,68,68,.7);}
+  /* Same "Live" button as the single view, a size smaller for a tile. It was a
+     round cross, which read as "close this camera" rather than "back to live". */
+  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;padding:4px 8px;font-size:11px;gap:4px;}
+  .grid-close-btn svg{width:12px;height:12px;}
   /* per-slot fullscreen button — appears on hover, bottom-right */
   .grid-fs-btn{position:absolute;bottom:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;}
   .grid-slot:hover .grid-fs-btn{opacity:1;}
@@ -2408,7 +2410,7 @@ class FrigateModernHassCard extends HTMLElement {
       slot.innerHTML = `
         <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
     } else {
       const url = await this._resolveClipUrl(ev.id);
@@ -2416,7 +2418,7 @@ class FrigateModernHassCard extends HTMLElement {
         <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
         <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>`;
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
       this._playMedia(slot.querySelector('video'));
     }
   }
