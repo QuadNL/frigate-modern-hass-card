@@ -1,6 +1,6 @@
 // card.js — main FrigateModernHassCard custom element
 import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, PTZ_OVERLAY_MIN_PX, PTZ_IS_NEW, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+         labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, PTZ_OVERLAY_MIN_PX, MENU_IS_NEW, REC_MAX_S, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
@@ -144,6 +144,7 @@ export class FrigateModernHassCard extends HTMLElement {
 
   disconnectedCallback() {
     this._ptzStop('card left the page');
+    this._moreToggle(false);
     this._unwatchPtz();
     this._suspended = this._started;
     this._resumeRotate = !!this._rotateTimer;
@@ -821,6 +822,118 @@ export class FrigateModernHassCard extends HTMLElement {
   // Single view uses the player's own native controls for mute and fullscreen.
   // Grid slots can't (their streams are pointer-events:none so slot clicks
   // still select the camera), so those keep the card's fullscreen button.
+  // ── More menu ─────────────────────────────────────────────
+  // Things to do with the camera on screen. Opens upwards over the picture, and
+  // closes on a choice, a click anywhere else, Escape, or a change of camera or
+  // view.
+  _moreToggle(force) {
+    const open = force === undefined ? !this._moreOpen : !!force;
+    if (open === !!this._moreOpen) return;
+    this._moreOpen = open;
+    if (open) {
+      this._menuSeenHere = true;
+      try { localStorage.setItem('fmhc-menu-seen', '1'); } catch (_) {}
+      // Clicks outside the card cannot reach _click, so listen on the document.
+      this._moreOutside = e => { if (!e.composedPath().includes(this)) this._moreToggle(false); };
+      this._moreKey = e => { if (e.key === 'Escape') { this._moreToggle(false); this.shadowRoot.querySelector('#sc-more')?.focus(); } };
+      document.addEventListener('click', this._moreOutside, true);
+      document.addEventListener('keydown', this._moreKey);
+    } else {
+      document.removeEventListener('click', this._moreOutside, true);
+      document.removeEventListener('keydown', this._moreKey);
+    }
+    this._renderStreamCtrl();
+    if (open) this.shadowRoot.querySelector('#more-menu button')?.focus();
+  }
+  // The new badge stays until the menu has been opened once, which this
+  // browser remembers; without storage, as in a private window, the card
+  // remembers for as long as it is open.
+  _menuSeen() { if (this._menuSeenHere) return true; try { return localStorage.getItem('fmhc-menu-seen') === '1'; } catch (_) { return false; } }
+  _moreItems() {
+    const entity = this._activeCam?.entity;
+    const tag = MENU_IS_NEW ? '<span class="mi-new">new</span>' : '';
+    const head = [];
+    if (this._ptzCaps()) head.push(`<button role="menuitemcheckbox" aria-checked="${!!this._ptzOpen}" data-more="ptz">${ICONS.ptz}<span>PTZ controls</span>${tag}</button>`);
+    const recording = !!this._recs?.[entity];
+    const tail = [
+      `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
+      `<button role="menuitem" data-more="record" class="mi-rec">${ICONS.record}<span>${recording ? 'Stop recording' : 'Start recording'}</span>${tag}</button>`,
+    ];
+    return [...head, ...(head.length ? ['<hr>'] : []), ...tail].join('');
+  }
+  _moreAction(what) {
+    const entity = this._activeCam?.entity; if (!entity) return;
+    if (what === 'ptz') return this._ptzOpen ? this._ptzClose('closed') : this._ptzShow();
+    if (what === 'snapshot') return this._snapshot(entity);
+    if (what === 'record') return this._recs?.[entity] ? this._recStop(entity) : this._recStart(entity);
+  }
+
+  // ── snapshot and manual recording ─────────────────────────
+  // Both are manual events in Frigate, through the integration's create_event
+  // and end_event actions, so they land in Frigate's own lists and this card's
+  // clips like any other event.
+  async _snapshot(entity) {
+    const f = this.shadowRoot.querySelector('#cam-flash');
+    if (f) { f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+    try {
+      await this._hass.callService('frigate', 'create_event', { label: 'manual', include_recording: false, duration: 1 }, { entity_id: entity });
+      this._toast('Snapshot saved as a Frigate event');
+      setTimeout(() => this._loadWindow(true), 2000);
+    } catch (err) { this._toast(`Snapshot failed: ${err?.message || err}`, 6000); }
+  }
+  // A recording belongs to its camera: switching cameras leaves it running, and
+  // its pill shows again on the way back. It carries a 30 minute limit so a
+  // forgotten one ends by itself; Stop ends it sooner.
+  async _recStart(entity) {
+    this._recs = this._recs || {};
+    if (this._recs[entity]) return;
+    const rec = { id: null, t0: Date.now() };
+    this._recs[entity] = rec;
+    this._renderRec();
+    try {
+      const r = await this._hass.callService('frigate', 'create_event',
+        { label: 'manual', include_recording: true, duration: REC_MAX_S }, { entity_id: entity }, false, true);
+      const resp = r?.response || {};
+      const id = resp[entity]?.event_id || resp.event_id || null;
+      this._dbg('recording started', entity, id);
+      // Stopped while this was still starting: end it now that it has an id.
+      if (this._recs[entity] !== rec) { if (id) this._endEvent(entity, id); return; }
+      rec.id = id;
+      rec.limit = setTimeout(() => { if (this._recs?.[entity] === rec) { delete this._recs[entity]; this._renderRec(); } }, REC_MAX_S * 1000);
+      this._toast(id ? 'Recording started' : 'Recording started; it stops by itself after 30 minutes', 4000);
+    } catch (err) {
+      if (this._recs[entity] === rec) delete this._recs[entity];
+      this._renderRec();
+      this._toast(`Recording failed: ${err?.message || err}`, 6000);
+    }
+  }
+  async _recStop(entity) {
+    const rec = this._recs?.[entity]; if (!rec) return;
+    delete this._recs[entity]; clearTimeout(rec.limit);
+    this._renderRec(); this._renderStreamCtrl();
+    if (rec.id) this._endEvent(entity, rec.id, true);
+  }
+  async _endEvent(entity, id, say) {
+    try {
+      await this._hass.callService('frigate', 'end_event', { event_id: id }, { entity_id: entity });
+      this._dbg('recording stopped', entity, id);
+      if (say) this._toast('Recording saved as a Frigate event');
+      setTimeout(() => this._loadWindow(true), 2000);
+    } catch (err) { this._toast(`Could not stop the recording: ${err?.message || err}. It stops by itself after 30 minutes.`, 7000); }
+  }
+  // The pill shows on the camera that is recording, and ticks once a second
+  // while any recording runs.
+  _renderRec() {
+    const pill = this.shadowRoot?.querySelector('#rec-pill'); if (!pill) return;
+    const rec = this._recs?.[this._activeCam?.entity];
+    pill.hidden = !rec || this._viewMode !== 'single';
+    const t = pill.querySelector('#rec-time');
+    if (rec && t) { const s = Math.floor((Date.now() - rec.t0) / 1000); t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+    const any = this._recs && Object.keys(this._recs).length;
+    if (any && !this._recTick) this._recTick = setInterval(() => this._renderRec(), 1000);
+    if (!any && this._recTick) { clearInterval(this._recTick); this._recTick = null; }
+  }
+
   // ── PTZ ───────────────────────────────────────────────────
   // Frigate reports per camera what it can steer, read over ONVIF; the card
   // shows only that, and only in the single view. Commands go through the
@@ -853,15 +966,8 @@ export class FrigateModernHassCard extends HTMLElement {
     const p = this._camCache[cam.entity]?.ptz;
     return p && (p.pt || p.zoom || p.presets.length) ? p : null;
   }
-  // The new badge on the PTZ button stays until it has been opened once, which
-  // this browser remembers. Storage can be unavailable; then it just shows.
-  // Without storage, a private window for instance, the card still remembers
-  // for as long as it is open.
-  _ptzSeen() { if (this._ptzSeenHere) return true; try { return localStorage.getItem('fmhc-ptz-seen') === '1'; } catch (_) { return false; } }
   _ptzShow() {
     if (!this._ptzCaps()) return;
-    this._ptzSeenHere = true;
-    try { localStorage.setItem('fmhc-ptz-seen', '1'); } catch (_) {}
     this._ptzOpen = true;
     this._renderStreamCtrl(); this._renderPtz();
   }
@@ -1014,10 +1120,14 @@ export class FrigateModernHassCard extends HTMLElement {
     // Only meaningful in the wide layout, where the events panel sits beside the
     // cameras. CSS hides it when narrow, since there the browse toggle does this.
     const events = `<button class="tool" id="sc-events"></button>`;
-    const ptz = this._ptzCaps()
-      ? `<button class="tool tool-txt${PTZ_IS_NEW && !this._ptzSeen() ? ' is-new' : ''}" id="sc-ptz" aria-pressed="${!!this._ptzOpen}" title="Pan, tilt and zoom">${ICONS.ptz}<span>PTZ</span></button>`
+    // Actions on the camera on screen sit behind one button: PTZ, snapshot,
+    // recording. Separate buttons no longer fitted beside the time range on a
+    // phone, and each item only appears when the camera can do it.
+    const more = !inGrid && this._activeCam
+      ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
+        + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
-    bar.innerHTML = `${grid}${ptz}${fs}${events}`;
+    bar.innerHTML = `${grid}${more}${fs}${events}`;
     this._applyEventsCollapsed();
   }
   _applyEventsCollapsed() {
@@ -1042,6 +1152,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // camera in the grid does not first start the previously active camera and
   // then immediately tear it down again.
   _setViewMode(mode, opts = {}) {
+    this._moreToggle(false);
     this._ptzClose('view changed');
     this._viewMode = mode;
     const card = this.shadowRoot.querySelector('.card');
@@ -1075,6 +1186,7 @@ export class FrigateModernHassCard extends HTMLElement {
   async _switchCamera(idx) {
     if (idx === this._activeCamIdx && this._viewMode === 'single') return;
     this._ptzClose('switched camera');
+    this._moreToggle(false);
     // Clicking a cam tab while in grid mode switches to single view of that camera
     if (this._viewMode === 'grid') this._setViewMode('single', { mount: false });
     const prevEnt = this._activeCam?.entity;
@@ -1093,7 +1205,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const cached = this._camCache[newEnt];
     this._events = cached.events||[]; this._recordings = cached.recordings||[];
     this._reviews = cached.reviews||[]; this._kept = cached.kept||[];
-    this._renderCamSwitcher(); this._syncStatus();
+    this._renderCamSwitcher(); this._syncStatus(); this._renderRec();
     await mounting;
     this._renderAll();
     await this._loadWindow(true);
@@ -1332,6 +1444,8 @@ export class FrigateModernHassCard extends HTMLElement {
                   <button class="btn back ctl-live" id="back">${ICONS.back}<span>Live</span></button>
                 </div>
 <div class="grid-label" id="play-info" hidden></div>
+<button class="rec-pill" id="rec-pill" type="button" title="Stop recording" hidden>REC <b id="rec-time">0:00</b><span class="rec-stop">Stop</span></button>
+<div class="cam-flash" id="cam-flash"></div>
 <div class="ptz-pad" id="ptz-pad" hidden><div class="ptz-zoom" id="ptz-zoom"><button class="pbtn" data-ptz="zoom:in" aria-label="Zoom in">+</button><button class="pbtn" data-ptz="zoom:out" aria-label="Zoom out">−</button></div><div class="ptz-dpad" id="ptz-dpad"><div class="hub"></div><button class="pbtn up" data-ptz="move:up" aria-label="Tilt up"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z"/></svg></button><button class="pbtn down" data-ptz="move:down" aria-label="Tilt down"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button><button class="pbtn left" data-ptz="move:left" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.4 16.6 10.8 12l4.6-4.6L14 6l-6 6 6 6z"/></svg></button><button class="pbtn right" data-ptz="move:right" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z"/></svg></button></div><button class="pbtn ptz-close" id="ptz-close" aria-label="Close PTZ controls">✕</button></div>
               </div>
               <div class="ptz-presets" id="ptz-presets" hidden></div>
@@ -1510,8 +1624,13 @@ export class FrigateModernHassCard extends HTMLElement {
 
   // ── interactions ──────────────────────────────────────────
   _click(e) {
+    if (e.target.closest('#sc-more')) return this._moreToggle();
+    const mi = e.target.closest('[data-more]');
+    if (mi) { this._moreToggle(false); return this._moreAction(mi.dataset.more); }
+    // A click anywhere else in the card closes the menu and still does its own thing.
+    if (this._moreOpen && !e.target.closest('.more-wrap')) this._moreToggle(false);
+    if (e.target.closest('#rec-pill')) return this._recStop(this._activeCam?.entity);
     if (e.target.closest('#back')) return this._showLive();
-    if (e.target.closest('#sc-ptz')) return this._ptzOpen ? this._ptzClose('closed') : this._ptzShow();
     if (e.target.closest('#ptz-close')) return this._ptzClose('closed with the cross');
     const ptzPre = e.target.closest('[data-ptz-preset]');
     if (ptzPre) { this._ptzStop('preset chosen'); return this._ptzSend(this._activeCam?.entity, 'preset', ptzPre.dataset.ptzPreset); }
@@ -1661,6 +1780,7 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   _enter() {
     this._ptzClose('playing a clip');
+    this.shadowRoot.querySelector('#eng-wrap')?.classList.add('viewing');
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
     this.shadowRoot.querySelector('#feed-top').style.display='flex';
@@ -1693,6 +1813,7 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   _showLive() {
     this._playing=null; this._playInfo(null);
+    this.shadowRoot.querySelector('#eng-wrap')?.classList.remove('viewing');
     const v=this.shadowRoot.querySelector('#viewer'); v.innerHTML=''; v.style.display='none';
     this.shadowRoot.querySelector('#engine').style.display='block';
     this.shadowRoot.querySelector('#feed-top').style.display='none';

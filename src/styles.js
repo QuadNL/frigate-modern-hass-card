@@ -5,6 +5,32 @@ export const STYLES = `
   /* The hidden attribute loses to any class that sets display, which kept the
      timeline's Back button on screen with nothing to go back to. */
   [hidden]{display:none !important;}
+  /* ── More menu ── opens upwards, over the picture */
+  .more-wrap{position:relative;display:inline-flex;}
+  .more-menu{position:absolute;right:0;bottom:calc(100% + 6px);width:210px;max-width:80vw;background:var(--c-bg);border:1px solid var(--c-border2);border-radius:10px;
+    box-shadow:0 12px 32px rgba(0,0,0,.35);padding:5px;display:flex;flex-direction:column;gap:1px;z-index:20;}
+  .more-menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;color:var(--c-text);font-size:13px;font-weight:500;padding:9px 10px;border-radius:7px;cursor:pointer;}
+  .more-menu button:hover,.more-menu button:focus-visible{background:var(--c-bg-panel);outline:none;}
+  .more-menu button[aria-checked="true"],.more-menu button[aria-checked="true"] svg{color:var(--c-acc);}
+  .more-menu svg{width:17px;height:17px;flex:none;color:var(--c-text2);}
+  .more-menu .mi-rec svg{color:#dc2626;}
+  .more-menu .mi-new{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:1px 5px;background:var(--c-acc);color:#fff;}
+  .more-menu hr{border:0;border-top:1px solid var(--c-border);margin:3px 4px;}
+  /* REC pill: shows a recording runs and is its stop button. Top left on the
+     live picture; top right during a clip, where Live takes the left. */
+  .rec-pill{position:absolute;top:10px;left:12px;z-index:8;display:inline-flex;align-items:center;gap:6px;border:0;cursor:pointer;
+    background:rgba(220,38,38,.9);color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:10px;font-variant-numeric:tabular-nums;}
+  .rec-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:#fff;animation:recBlink 1s steps(2,start) infinite;}
+  .rec-pill .rec-stop{margin-left:2px;padding-left:7px;border-left:1px solid rgba(255,255,255,.45);display:inline-flex;align-items:center;gap:4px;}
+  .rec-pill .rec-stop::before{content:'';width:8px;height:8px;background:#fff;border-radius:1px;}
+  .rec-pill:hover{background:rgba(185,28,28,.95);}
+  .rec-pill:focus-visible{outline:2px solid #fff;outline-offset:2px;}
+  #eng-wrap.viewing .rec-pill{left:auto;right:12px;}
+  @keyframes recBlink{to{visibility:hidden}}
+  .cam-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9;}
+  .cam-flash.go{animation:camFlash .5s ease-out;}
+  @keyframes camFlash{from{opacity:.7}to{opacity:0}}
+  @media (prefers-reduced-motion: reduce){.rec-pill::before,.cam-flash.go{animation:none;}}
   /* ── PTZ ── On the picture, right and centred, clear of the player's control
      bar along the bottom and the label bottom left; under the picture when it
      is small (ptz-below). On a phone the timeline also makes way (narrow). */
@@ -21,7 +47,6 @@ export const STYLES = `
   .ptz-dpad .up{top:6px;left:43px}.ptz-dpad .down{bottom:6px;left:43px}.ptz-dpad .left{left:6px;top:43px}.ptz-dpad .right{right:6px;top:43px}
   .ptz-dpad .hub{position:absolute;left:51px;top:51px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);}
   /* PTZ is a panel that opens and closes, so the button shows it is open. */
-  #sc-ptz[aria-pressed="true"]{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .ptz-close{display:none;}
   .ptz-presets{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px 2px;}
   .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
@@ -249,7 +274,6 @@ export const STYLES = `
   /* On a phone the toolbar has to share one line with the range: PTZ keeps
      its icon and badge, labelled buttons get a little less padding. */
   .card.narrow .tool-txt{padding:4px 7px;}
-  .card.narrow #sc-ptz span{display:none;}
   .tool.is-new{position:relative;}
   .tool.is-new::after{content:'new';position:absolute;top:-7px;right:-6px;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
     background:var(--c-acc);color:#fff;border-radius:6px;padding:1px 4px;line-height:1.3;pointer-events:none;}

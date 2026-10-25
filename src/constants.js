@@ -27,9 +27,13 @@ export const PHONE_MIN_TILE_PX = 100;
 // it. On a smaller picture a centred pad would reach into the player's own
 // control bar, which takes the bottom 90px or so.
 export const PTZ_OVERLAY_MIN_PX = 560;
-// The PTZ button's "new" badge belongs to the release that introduced it.
-// From 1.4.1 on it never shows, not even for someone who never saw it.
-export const PTZ_IS_NEW = /^1\.4\.0(-|$)/.test(VERSION);
+// The More menu and what is in it came with 1.4.0, and so does its "new"
+// badge. From 1.4.1 on it never shows, not even for someone who never saw it.
+export const MENU_IS_NEW = /^1\.4\.0(-|$)/.test(VERSION);
+// A manual recording ends by itself after this long, so a card that is
+// reloaded or closed mid-recording cannot leave Frigate recording forever.
+// Stop ends it earlier.
+export const REC_MAX_S = 1800;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {
@@ -55,6 +59,8 @@ export const ICONS = {
   // means it is hidden. A chevron alone did not say what it would do.
   panelOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="14" y="6" width="6" height="12" fill="currentColor" stroke="none" rx="1"/></svg>',
   panelOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M14 5v14"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
+  record:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
   ptz:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 8.5 5.5h2.5V9h2V5.5h2.5L12 2zm0 20 3.5-3.5H13V15h-2v3.5H8.5L12 22zM2 12l3.5 3.5V13H9v-2H5.5V8.5L2 12zm20 0-3.5-3.5V11H15v2h3.5v2.5L22 12z"/></svg>',
   grid:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8zm6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z"/></svg>',
   person:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',

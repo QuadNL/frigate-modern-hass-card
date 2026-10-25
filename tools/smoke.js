@@ -241,7 +241,36 @@ async function ptz() {
   expect('move_left@camera.one stop@camera.one', 'stop after switching cameras');
 }
 
-Promise.all([recordingsLoaded(), ptz()])
-  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings, every PTZ move ends with a stop`))
+// Manual recording: start hands back an event id, stop ends that event, and a
+// stop that comes while the start is still under way ends it once the id is in.
+async function recording() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }] });
+  const sent = []; let release;
+  card._hass = { states: {}, callService: (d, s, data, t, notify, ret) => {
+    sent.push(`${s}${data.event_id ? ':' + data.event_id : ''}${s === 'create_event' ? (data.include_recording ? ':rec' : ':snap') + (ret ? ':resp' : '') : ''}`);
+    if (s === 'create_event' && data.include_recording) return new Promise(r => { release = () => r({ response: { [t.entity_id]: { event_id: 'e1' } } }); });
+    return Promise.resolve({});
+  } };
+  card._viewMode = 'single'; card._activeCamIdx = 0;
+  card._toast = () => {}; card._renderRec = () => {}; card._renderStreamCtrl = () => {}; card._loadWindow = () => {};
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const expect = (want, what) => { if (sent.join(' ') !== want) fail('recording', `${what}: sent "${sent.join(' ')}", expected "${want}"`); sent.length = 0; };
+
+  card._recStart('camera.one'); await wait(0); release(); await wait(0);
+  if (card._recs['camera.one']?.id !== 'e1') fail('recording', 'start did not keep the event id');
+  card._recStop('camera.one'); await wait(0);
+  expect('create_event:rec:resp end_event:e1', 'start and stop');
+  if (card._recs['camera.one']) fail('recording', 'stop left the recording in place');
+
+  card._recStart('camera.one'); await wait(0); card._recStop('camera.one'); release(); await wait(0); await wait(0);
+  expect('create_event:rec:resp end_event:e1', 'stop while starting');
+
+  await card._snapshot('camera.one');
+  expect('create_event:snap', 'snapshot');
+}
+
+Promise.all([recordingsLoaded(), ptz(), recording()])
+  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings, every PTZ move ends with a stop, recordings start and stop`))
   .catch(err => fail('async tests', err));
 
