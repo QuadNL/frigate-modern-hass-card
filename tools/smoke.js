@@ -156,6 +156,15 @@ function timeline() {
   if (ticks.length !== 2) fail('timeline', `expected 2 separate ticks, got ${ticks.length}`);
   if (!/data-cis="0,1"/.test(html)) fail('timeline', 'group does not name both cameras');
   if (!/data-tick="500-x" data-cis="1"/.test(html)) fail('timeline', 'tick does not name its camera');
+  // Zooming into a block and pressing Back returns to exactly the window before.
+  card._loadWindow = () => {}; card._renderRange = () => {};
+  card._winStart = 1000; card._winEnd = 2000;
+  card._zoomTo(1100, 1108);
+  if (card._winStart === 1000) fail('timeline', 'zooming into a block did not change the window');
+  card._zoomBack();
+  if (card._winStart !== 1000 || card._winEnd !== 2000) fail('timeline', `Back gave ${card._winStart}-${card._winEnd}, not 1000-2000`);
+  card._zoomTo(1100, 1108); card._goNow();
+  if (card._zoomStack.length) fail('timeline', 'Now left a way back behind');
 }
 try { timeline(); } catch (err) { fail('timeline', err); }
 

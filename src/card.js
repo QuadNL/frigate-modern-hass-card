@@ -934,10 +934,16 @@ export class FrigateModernHassCard extends HTMLElement {
   // A tile's name label. With more than one camera it carries the camera's
   // timeline colour, which ties tile, timeline and legend together on a phone,
   // where nothing can be hovered to light a tile up.
-  _gridLabel(i, extra = '') {
+  // While a clip plays the label also says what it is. A narrow tile gets a
+  // shorter version, time first and without the camera name, which the dot and
+  // the tile itself already give; the CSS picks one by the tile's width.
+  _gridLabel(i, ev = null) {
     const c = this._config.cameras[i]; if (!c) return '';
     const dot = this._config.cameras.length > 1 ? `<i class="cam-dot-lbl" style="background:${this._camColor(i)}"></i>` : '';
-    return `<div class="grid-label">${dot}${cap(camDisplayName(c))}${extra}</div>`;
+    const name = cap(camDisplayName(c));
+    if (!ev) return `<div class="grid-label">${dot}${name}</div>`;
+    const what = cap(ev.label || ''), when = this._time(ev.start_time);
+    return `<div class="grid-label">${dot}<span class="gl-full">${name} · ${what} · ${when}</span><span class="gl-short">${when} · ${what}</span></div>`;
   }
   // Light up the tiles of the cameras behind the event under the pointer.
   _hlTiles(list) {
@@ -951,6 +957,9 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   // Zoom the timeline onto a group of events so they come apart again.
   _zoomTo(a, b) {
+    // Remembered so Back returns to exactly this window: zoom into one busy
+    // block, come back, zoom into the next.
+    (this._zoomStack = this._zoomStack || []).push([this._winStart, this._winEnd]);
     const pad = Math.max(60, (b - a) * 0.25);
     let ns = Math.floor(a - pad), ne = Math.ceil(b + pad);
     if (ne - ns < 300) { const mid = (ns + ne) / 2; ns = Math.floor(mid - 150); ne = ns + 300; }
@@ -1067,10 +1076,13 @@ export class FrigateModernHassCard extends HTMLElement {
             <!-- timeline strip — always visible below the stream/grid -->
             <div class="tl-sec">
               <div class="tl-head">
-                <span class="section-label" id="tl-range">—</span>
+                <div class="tl-where">
+                  <span class="section-label" id="tl-range">—</span>
+                  <button class="tool tool-txt" id="zoom-back" title="Back to where you were before zooming in" hidden>${ICONS.back}<span>Back</span></button>
+                </div>
                 <div class="tl-tools">
                   <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
-                  <button class="tool" id="now-btn" title="Jump to now">⟳</button>
+                  <button class="tool tool-txt" id="now-btn" title="Back to the last hours up to now">${ICONS.clock}<span>Now</span></button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
                 </div>
@@ -1240,6 +1252,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#filter-btn')) return this._toggleFilter();
     if (e.target.closest('#cal-btn')) return this._toggleCal();
     if (e.target.closest('#now-btn')) return this._goNow();
+    if (e.target.closest('#zoom-back')) return this._zoomBack();
     if (e.target.closest('#browse-toggle')) return this._toggleBrowse();
     if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
@@ -1342,7 +1355,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._revealPlayer(slot);
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
     // The tile says what is playing, as the single view does beside Live.
-    const label = this._gridLabel(camIdx < 0 ? 0 : camIdx, ` · ${this._evInfo(ev)}`);
+    const label = this._gridLabel(camIdx < 0 ? 0 : camIdx, ev);
     if (isSnap) {
       const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
       slot.innerHTML = `
@@ -1689,7 +1702,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
     if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
   }
-  _goNow() { const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
+  _goNow() { this._zoomStack=[]; const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
   _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
   // ── favorites (realtime) ──────────────────────────────────
@@ -1870,7 +1883,15 @@ export class FrigateModernHassCard extends HTMLElement {
 
   _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
+  _zoomBack() {
+    const prev = (this._zoomStack || []).pop(); if (!prev) return;
+    [this._winStart, this._winEnd] = prev; this._exhausted = false;
+    this._renderTimeline(); this._renderRange();
+    clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350);
+  }
   _renderRange() {
+    const back=this.shadowRoot.querySelector('#zoom-back');
+    if (back) back.hidden = !(this._zoomStack && this._zoomStack.length);
     const el=this._$('#tl-range'); if(!el) return;
     const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
     if(span<=DAY+60) el.textContent=`${this._day(this._winEnd)} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;

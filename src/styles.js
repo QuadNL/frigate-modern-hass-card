@@ -113,6 +113,17 @@ export const STYLES = `
      round cross, which read as "close this camera" rather than "back to live". */
   .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;padding:4px 8px;font-size:11px;gap:4px;}
   .grid-close-btn svg{width:12px;height:12px;}
+  /* A tile is its own size container, so its controls can shrink with it: on
+     a phone a tile is a few centimetres wide and full labels covered half the
+     picture. */
+  .grid-slot{container-type:inline-size;}
+  .gl-short{display:none;}
+  @container (max-width: 260px) {
+    .grid-close-btn span{display:none;}
+    .grid-close-btn{padding:4px 6px;}
+    .gl-full{display:none;}
+    .gl-short{display:inline;}
+  }
   /* per-slot fullscreen button — appears on hover, bottom-right */
   .grid-fs-btn{position:absolute;bottom:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;}
   .grid-slot:hover .grid-fs-btn{opacity:1;}
@@ -130,7 +141,7 @@ export const STYLES = `
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
   .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
   .cam-dot-lbl{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;position:relative;top:-1px;}
-  .grid-label{position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
+  .grid-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
   .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
@@ -192,7 +203,8 @@ export const STYLES = `
 
   /* ── timeline ── */
   .tl-sec{padding:8px 13px;border-bottom:1px solid var(--c-border);}
-  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;flex-wrap:wrap;gap:6px;}
+  .tl-where{display:flex;align-items:center;gap:8px;min-width:0;}
   .tl-tools{display:flex;gap:4px;}
   .tool{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:7px;padding:4px 7px;cursor:pointer;}
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
