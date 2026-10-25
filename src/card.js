@@ -1283,7 +1283,11 @@ export class FrigateModernHassCard extends HTMLElement {
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
         + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
-    bar.innerHTML = `${grid}${more}${fs}${events}`;
+    bar.innerHTML = `${grid}${fs}${events}`;
+    // Last in the row, where an overflow button is looked for, so the menu also
+    // opens from the card's right edge.
+    const slot = this.shadowRoot.querySelector('#more-slot');
+    if (slot) slot.innerHTML = more;
     this._applyEventsCollapsed();
   }
   _applyEventsCollapsed() {
@@ -1622,6 +1626,7 @@ export class FrigateModernHassCard extends HTMLElement {
                   <button class="tool tool-txt" id="now-btn" title="Back to the last hours up to now">${ICONS.clock}<span>Now</span></button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
+                  <div class="more-slot" id="more-slot"></div>
                 </div>
               </div>
               <div class="filter-panel" id="filter-panel" style="display:none"></div>

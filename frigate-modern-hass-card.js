@@ -148,6 +148,7 @@ const STYLES = `
      timeline's Back button on screen with nothing to go back to. */
   [hidden]{display:none !important;}
   /* ── More menu ── opens upwards, over the picture */
+  .more-slot{display:contents;}
   .more-wrap{position:relative;display:inline-flex;}
   .more-menu{position:absolute;right:0;bottom:calc(100% + 6px);width:210px;max-width:80vw;background:var(--c-bg);border:1px solid var(--c-border2);border-radius:10px;
     box-shadow:0 12px 32px rgba(0,0,0,.35);padding:5px;display:flex;flex-direction:column;gap:1px;z-index:20;}
@@ -208,7 +209,9 @@ const STYLES = `
   .ptz-dpad .up{top:6px;left:43px}.ptz-dpad .down{bottom:6px;left:43px}.ptz-dpad .left{left:6px;top:43px}.ptz-dpad .right{right:6px;top:43px}
   .ptz-dpad .hub{position:absolute;left:51px;top:51px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);}
   /* PTZ is a panel that opens and closes, so the button shows it is open. */
-  .ptz-close{display:none;}
+  /* The controls always have their own way out: PTZ now opens from the menu,
+     so there is no toolbar button to press again. */
+  .ptz-close{position:absolute;top:-8px;right:-8px;width:30px;height:30px;border-radius:50%;font-size:13px;z-index:1;}
   .ptz-presets{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 14px 2px;}
   .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
   .ptz-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);margin-right:4px;}
@@ -219,7 +222,7 @@ const STYLES = `
   .card.ptz-below .ptz-dpad .hub{background:var(--c-border2);}
   .card.ptz-below .ptz-zoom{flex-direction:row;}
   /* While steering on a phone the timeline makes way; the cross brings it back. */
-  .card.narrow.ptz-below .ptz-close{display:flex;position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;font-size:15px;}
+  .card.ptz-below .ptz-close{top:10px;right:12px;width:34px;height:34px;font-size:15px;}
   .card.narrow.ptz-open .tl-sec{display:none;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
@@ -2530,7 +2533,11 @@ class FrigateModernHassCard extends HTMLElement {
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
         + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
-    bar.innerHTML = `${grid}${more}${fs}${events}`;
+    bar.innerHTML = `${grid}${fs}${events}`;
+    // Last in the row, where an overflow button is looked for, so the menu also
+    // opens from the card's right edge.
+    const slot = this.shadowRoot.querySelector('#more-slot');
+    if (slot) slot.innerHTML = more;
     this._applyEventsCollapsed();
   }
   _applyEventsCollapsed() {
@@ -2869,6 +2876,7 @@ class FrigateModernHassCard extends HTMLElement {
                   <button class="tool tool-txt" id="now-btn" title="Back to the last hours up to now">${ICONS.clock}<span>Now</span></button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
+                  <div class="more-slot" id="more-slot"></div>
                 </div>
               </div>
               <div class="filter-panel" id="filter-panel" style="display:none"></div>
