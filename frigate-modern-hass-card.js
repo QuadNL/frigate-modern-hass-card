@@ -2956,7 +2956,14 @@ class FrigateModernHassCard extends HTMLElement {
     } else {
       for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%"></div>`;}
     }
-    for(const ev of this._allDisplayEvents()){if(ev.start_time<s||ev.start_time>e)continue;const left=(ev.start_time-s)/span*100;html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${labelColor(ev.label)}" title="${cap(ev.label)} ${this._time(ev.start_time)}"></div>`;}
+    // With every camera on one timeline the tick has to say which camera it is:
+    // its colour only says what was seen.
+    const camOf = ev => {
+      if (this._eventsMode !== 'all') return '';
+      const c = this._config.cameras.find(c => this._camCache[c.entity]?.cam === ev.camera);
+      return ` · ${cap(c ? camDisplayName(c) : (ev.camera || '').replace(/_/g, ' '))}`;
+    };
+    for(const ev of this._allDisplayEvents()){if(ev.start_time<s||ev.start_time>e)continue;const left=(ev.start_time-s)/span*100;html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${labelColor(ev.label)}" title="${cap(ev.label)} ${this._time(ev.start_time)}${camOf(ev)}"></div>`;}
     const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
     html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;
     track.innerHTML=html;
