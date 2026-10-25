@@ -124,7 +124,21 @@ export class FrigateModernHassCard extends HTMLElement {
   // Users can override in their dashboard yaml via grid_options.
   getGridSize() { return { columns: 2, rows: 3 }; }
 
+  // Home Assistant may reattach this same instance when you come back to the
+  // view, rather than building a new card. By then _started is long true, so
+  // nothing in the normal start path runs again: everything torn down below has
+  // to be brought back here, or the card returns looking normal with no picture,
+  // no event refresh and no live updates (#15).
+  connectedCallback() {
+    if (!this._suspended) return; // first attach: the hass setter starts the card
+    this._suspended = false;
+    this._resume();
+  }
+
   disconnectedCallback() {
+    this._suspended = this._started;
+    this._resumeRotate = !!this._rotateTimer;
+    this._resumeAtNow = this._started && this._isNowWindow();
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
     if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
@@ -135,6 +149,30 @@ export class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── init ─────────────────────────────────────────────────
+  _startRefresh() {
+    clearInterval(this._refresh);
+    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+  }
+  _resume() {
+    if (!this._config || !this._hass) return;
+    this._dbg('reattached to the page, restoring what was stopped on leaving');
+    this._ro?.observe(this);
+    this._subscribe();
+    this._startRefresh();
+    // Watching live when you left: carry the window on to now, or the card comes
+    // back stuck at the moment you navigated away.
+    if (this._resumeAtNow) {
+      const now = Math.floor(Date.now() / 1000), span = this._winEnd - this._winStart;
+      this._winEnd = now; this._winStart = now - span;
+    }
+    // A clip loaded as a blob was released on leaving and will not play again.
+    const clip = this.shadowRoot.querySelector('#viewer video');
+    if (clip?.src?.startsWith('blob:')) this._showLive();
+    if (this._viewMode === 'grid') this._mountGrid();
+    else this._mountEngine();
+    this._loadWindow(true);
+    if (this._resumeRotate) this._startRotate();
+  }
   async _start() {
     // Before any awaits: the layout classes decide the stream's size, and
     // without them the card renders 16:9 across its full width — briefly
@@ -152,7 +190,7 @@ export class FrigateModernHassCard extends HTMLElement {
     await this._loadWindow(true);
     this._loadCalendar();
     this._subscribe();
-    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+    this._startRefresh();
     const shouldRotate = this._config.rotate_on_load || this._config.rotate_seconds > 0;
     if (shouldRotate && this._config.cameras.length > 1) this._startRotate();
   }

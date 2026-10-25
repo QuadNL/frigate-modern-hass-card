@@ -106,4 +106,32 @@ for (const config of configs) {
   }
 }
 
-console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs`);
+// Lifecycle (#15): Home Assistant can detach a card when you leave a view and
+// reattach the same instance when you come back. Whatever disconnectedCallback
+// stops, connectedCallback has to start again, and a card that was never
+// started must not be started from there.
+function lifecycle(viewMode) {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  const calls = [];
+  for (const m of ['_mountEngine', '_mountGrid', '_subscribe', '_loadWindow', '_startRefresh']) {
+    card[m] = () => { calls.push(m); };
+  }
+  card.connectedCallback();
+  if (calls.length) fail('lifecycle', `a card that never started did work on attach: ${calls}`);
+  card._hass = { states: {} };
+  card._started = true;
+  card._viewMode = viewMode;
+  card.disconnectedCallback();
+  card.connectedCallback();
+  const want = viewMode === 'grid' ? '_mountGrid' : '_mountEngine';
+  for (const m of [want, '_subscribe', '_startRefresh', '_loadWindow']) {
+    if (!calls.includes(m)) fail('lifecycle', `${viewMode} view: ${m} not restored after reattach (got ${calls})`);
+  }
+  calls.length = 0;
+  card.connectedCallback();
+  if (calls.length) fail('lifecycle', `a second attach without a detach did work again: ${calls}`);
+}
+try { lifecycle('single'); lifecycle('grid'); } catch (err) { fail('lifecycle', err); }
+
+console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach`);
