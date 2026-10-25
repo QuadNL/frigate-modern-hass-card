@@ -81,7 +81,7 @@ default_view: single     # or 'grid'
 | `theme` | string | `dark` | `dark`, `light`, `auto` |
 | `accent_color` | string | none | Custom accent colour (hex) |
 | `bg_color` | string | none | Custom background colour (hex) |
-| `window_hours` | number | `24` | History window in hours |
+| `window_hours` | number | `6` | Hours the timeline shows when the card opens. Zoom and drag to see more |
 | `rotate_on_load` | boolean | `false` | Auto-rotate cameras on load |
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
 | `stream_height` | number | none | Max stream height in vh |

@@ -55,7 +55,19 @@ const LABEL_COLORS = { person:'#3b82f6', car:'#a855f7', motion:'#f59e0b', dog:'#
 const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#eab308','#ef4444','#f97316'];
 function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
-const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// One colour per camera, in the order of the camera list. Eight, because in
+// grid view these tell the cameras apart on a single shared timeline, and with
+// four the fifth camera looked exactly like the first.
+const CAM_COLORS = [
+  'rgba(30,80,200,.5)', 'rgba(210,80,30,.5)', 'rgba(30,170,80,.5)', 'rgba(170,30,180,.5)',
+  'rgba(220,180,20,.5)', 'rgba(20,170,190,.5)', 'rgba(220,50,110,.5)', 'rgba(140,150,160,.5)',
+];
+// Recording band in grid view, where blue already means the first camera.
+const REC_NEUTRAL = 'rgba(148,163,184,.35)';
+// The same colour at full strength, for ticks and legend swatches.
+function camSolid(i) {
+  return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
+}
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody
@@ -1128,7 +1140,7 @@ class FrigateModernHassCard extends HTMLElement {
       cameras,
       title: config.title || null,
       subtitle: config.subtitle || null,
-      window_hours: config.window_hours || 24,
+      window_hours: config.window_hours || 6,
       refresh_seconds: Math.max(15, config.refresh_seconds || 45),
       browse_expanded: config.browse_expanded === true,
       rotate_seconds: config.rotate_seconds ?? 0,
@@ -2903,12 +2915,15 @@ class FrigateModernHassCard extends HTMLElement {
   _renderLegend() {
     const el=this._$('#legend'); if(!el) return;
     const labels=this._labels();
-    let html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
+    // The legend explains the colours actually on the timeline: cameras in grid
+    // view, object labels on a single camera.
+    let html;
     if (this._eventsMode==='all') {
-      this._config.cameras.forEach((c,i)=>{ html+=`<span class="lg"><i style="background:${CAM_COLORS[i%CAM_COLORS.length].replace('.5','1').replace('rgba','rgb').replace(',1)',')')}"></i>${cap(camDisplayName(c))} rec</span>`; });
+      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${camSolid(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
-      html+=`<span class="lg"><i style="background:${CAM_COLORS[0].replace('.5','1').replace('rgba','rgb').replace(',1)',')')}"></i>Rec</span>`;
+      html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
+    html+=`<span class="lg"><i style="background:${this._eventsMode==='all'?REC_NEUTRAL:camSolid(0)}"></i>Recording</span>`;
     el.innerHTML=html;
   }
 
@@ -2947,23 +2962,30 @@ class FrigateModernHassCard extends HTMLElement {
     const s=this._winStart,e=this._winEnd,span=Math.max(1,e-s); let html='';
 
     if (this._eventsMode==='all') {
-      // Per-camera coloured recording bars
-      this._config.cameras.forEach((c,ci)=>{
-        const cc=this._camCache[c.entity]; if(!cc) return;
-        const col=CAM_COLORS[ci%CAM_COLORS.length];
-        for(const r of this._mergeRecs(cc.recordings||[])){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${col}"></div>`;}
-      });
+      // One band for "something was recording here". Per camera bands at full
+      // height lay on top of each other and the last camera hid the rest, so the
+      // legend promised colours nobody could see. Telling cameras apart is the
+      // ticks' job in this view.
+      const all=[];
+      this._config.cameras.forEach(c=>{ const cc=this._camCache[c.entity]; if(cc) all.push(...(cc.recordings||[])); });
+      // Neutral, so it cannot be mistaken for the first camera's colour.
+      for(const r of this._mergeRecs(all)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
     } else {
       for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%"></div>`;}
     }
-    // With every camera on one timeline the tick has to say which camera it is:
-    // its colour only says what was seen.
-    const camOf = ev => {
-      if (this._eventsMode !== 'all') return '';
-      const c = this._config.cameras.find(c => this._camCache[c.entity]?.cam === ev.camera);
-      return ` · ${cap(c ? camDisplayName(c) : (ev.camera || '').replace(/_/g, ' '))}`;
-    };
-    for(const ev of this._allDisplayEvents()){if(ev.start_time<s||ev.start_time>e)continue;const left=(ev.start_time-s)/span*100;html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${labelColor(ev.label)}" title="${cap(ev.label)} ${this._time(ev.start_time)}${camOf(ev)}"></div>`;}
+    // With every camera on one timeline a tick is coloured by camera, so you can
+    // see where something happened; what it was is in the tooltip. On a single
+    // camera the camera is already known and the colour shows what was seen.
+    const all = this._eventsMode === 'all';
+    const camIdx = ev => this._config.cameras.findIndex(c => this._camCache[c.entity]?.cam === ev.camera);
+    for(const ev of this._allDisplayEvents()){
+      if(ev.start_time<s||ev.start_time>e)continue;
+      const left=(ev.start_time-s)/span*100;
+      const ci = all ? camIdx(ev) : -1;
+      const col = ci >= 0 ? camSolid(ci) : labelColor(ev.label);
+      const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
+      html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
+    }
     const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
     html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;
     track.innerHTML=html;
@@ -3309,7 +3331,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
       <div class="section">
         <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
+        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
       </div>
 
     </div>`;
@@ -3413,7 +3435,9 @@ class FrigateModernHassCardEditor extends HTMLElement {
     const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
     if(t) c.title=t; else delete c.title;
     if(s) c.subtitle=s; else delete c.subtitle;
-    if(w) c.window_hours=Number(w);
+    // Only a deliberate choice goes into the YAML. Writing the default along with
+    // every save froze each editor-made card at the old default of 24 hours.
+    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
     c.rotate_seconds = Number(r)||0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked

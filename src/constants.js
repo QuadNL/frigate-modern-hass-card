@@ -55,7 +55,19 @@ export const LABEL_COLORS = { person:'#3b82f6', car:'#a855f7', motion:'#f59e0b',
 export const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#eab308','#ef4444','#f97316'];
 export function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
-export const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// One colour per camera, in the order of the camera list. Eight, because in
+// grid view these tell the cameras apart on a single shared timeline, and with
+// four the fifth camera looked exactly like the first.
+export const CAM_COLORS = [
+  'rgba(30,80,200,.5)', 'rgba(210,80,30,.5)', 'rgba(30,170,80,.5)', 'rgba(170,30,180,.5)',
+  'rgba(220,180,20,.5)', 'rgba(20,170,190,.5)', 'rgba(220,50,110,.5)', 'rgba(140,150,160,.5)',
+];
+// Recording band in grid view, where blue already means the first camera.
+export const REC_NEUTRAL = 'rgba(148,163,184,.35)';
+// The same colour at full strength, for ticks and legend swatches.
+export function camSolid(i) {
+  return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
+}
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody

@@ -244,7 +244,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
 
       <div class="section">
         <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
+        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
       </div>
 
 
@@ -349,7 +349,9 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
     if(t) c.title=t; else delete c.title;
     if(s) c.subtitle=s; else delete c.subtitle;
-    if(w) c.window_hours=Number(w);
+    // Only a deliberate choice goes into the YAML. Writing the default along with
+    // every save froze each editor-made card at the old default of 24 hours.
+    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
     c.rotate_seconds = Number(r)||0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked
