@@ -2304,7 +2304,11 @@ class FrigateModernHassCard extends HTMLElement {
     const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv=revMark.closest('[data-review-id]'); e.stopPropagation(); if(rv) return this._markReviewed(rv.dataset.reviewId); }
     const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._openReview(revOpen);
     const pill = e.target.closest('[data-tab]'); if (pill) return this._setTab(pill.dataset.tab);
-    const tick = e.target.closest('[data-tick]'); if (tick) return this._open(tick.dataset.tick);
+    // A tick opens its clip where the list would: in the camera's own tile in
+    // grid view. _open alone uses the single view player, which is hidden while
+    // the grid is showing, so in grid view a tick seemed to do nothing (#11).
+    const tick = e.target.closest('[data-tick]');
+    if (tick) return this._viewMode === 'grid' ? this._openInGridSlot(tick.dataset.tick) : this._open(tick.dataset.tick);
     // Stop seek-bar clicks from bubbling up to the recording row handler
     if (e.target.closest('.rec-seek-wrap')) return;
     const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
