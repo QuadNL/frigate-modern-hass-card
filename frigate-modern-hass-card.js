@@ -64,8 +64,12 @@ const CAM_COLORS = [
 ];
 // Recording band in grid view, where blue already means the first camera.
 const REC_NEUTRAL = 'rgba(148,163,184,.35)';
-// The same colour at full strength, for ticks and legend swatches.
-function camSolid(i) {
+// The same colour at full strength, for ticks and legend swatches. Past eight
+// cameras the palette would repeat, so camera 9 looked like camera 1: spread
+// that many hues evenly around the wheel instead, one per camera. At sixteen the
+// neighbours get close, which is why the tooltip names the camera as well.
+function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return `hsl(${Math.round(i * 360 / count)}, 70%, 55%)`;
   return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
 }
 // Predefined grid layouts. A layout is just a column count plus a size per
@@ -2919,7 +2923,7 @@ class FrigateModernHassCard extends HTMLElement {
     // view, object labels on a single camera.
     let html;
     if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${camSolid(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+      html=this._config.cameras.map((c,i,arr)=>`<span class="lg"><i style="background:${camSolid(i, arr.length)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
       html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
@@ -2982,7 +2986,7 @@ class FrigateModernHassCard extends HTMLElement {
       if(ev.start_time<s||ev.start_time>e)continue;
       const left=(ev.start_time-s)/span*100;
       const ci = all ? camIdx(ev) : -1;
-      const col = ci >= 0 ? camSolid(ci) : labelColor(ev.label);
+      const col = ci >= 0 ? camSolid(ci, this._config.cameras.length) : labelColor(ev.label);
       const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
       html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
     }

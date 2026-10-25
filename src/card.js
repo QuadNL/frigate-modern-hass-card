@@ -1825,7 +1825,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // view, object labels on a single camera.
     let html;
     if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${camSolid(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+      html=this._config.cameras.map((c,i,arr)=>`<span class="lg"><i style="background:${camSolid(i, arr.length)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
       html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
@@ -1888,7 +1888,7 @@ export class FrigateModernHassCard extends HTMLElement {
       if(ev.start_time<s||ev.start_time>e)continue;
       const left=(ev.start_time-s)/span*100;
       const ci = all ? camIdx(ev) : -1;
-      const col = ci >= 0 ? camSolid(ci) : labelColor(ev.label);
+      const col = ci >= 0 ? camSolid(ci, this._config.cameras.length) : labelColor(ev.label);
       const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
       html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
     }

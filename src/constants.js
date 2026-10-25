@@ -64,8 +64,12 @@ export const CAM_COLORS = [
 ];
 // Recording band in grid view, where blue already means the first camera.
 export const REC_NEUTRAL = 'rgba(148,163,184,.35)';
-// The same colour at full strength, for ticks and legend swatches.
-export function camSolid(i) {
+// The same colour at full strength, for ticks and legend swatches. Past eight
+// cameras the palette would repeat, so camera 9 looked like camera 1: spread
+// that many hues evenly around the wheel instead, one per camera. At sixteen the
+// neighbours get close, which is why the tooltip names the camera as well.
+export function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return `hsl(${Math.round(i * 360 / count)}, 70%, 55%)`;
   return CAM_COLORS[i % CAM_COLORS.length].replace('rgba', 'rgb').replace(/,\s*\.?\d+\)$/, ')');
 }
 // Predefined grid layouts. A layout is just a column count plus a size per
