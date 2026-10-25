@@ -216,7 +216,6 @@ const STYLES = `
   .ph-spin{width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--c-acc);border-radius:50%;animation:spin .8s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .feed-top{position:absolute;top:10px;left:12px;right:12px;z-index:6;display:flex;align-items:center;gap:8px;}
-  .play-info{background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .btn{display:inline-flex;align-items:center;gap:5px;background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .btn svg{width:14px;height:14px;}
 
@@ -237,10 +236,12 @@ const STYLES = `
   .grid-slot.placeholder{background:#06090f;cursor:default;}
   .grid-slot.placeholder:hover::after{box-shadow:none;}
   .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  /* Same "Live" button as the single view, a size smaller for a tile. It was a
-     round cross, which read as "close this camera" rather than "back to live". */
-  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;padding:4px 8px;font-size:11px;gap:4px;}
-  .grid-close-btn svg{width:12px;height:12px;}
+  /* One Live button for a grid tile and the single view, so the two look like
+     the same thing. In a tile it replaced a round cross, which read as "close
+     this camera" rather than "back to live". */
+  .ctl-live,.grid-close-btn{padding:4px 8px;font-size:11px;gap:4px;}
+  .ctl-live svg,.grid-close-btn svg{width:12px;height:12px;}
+  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;}
   /* A tile is its own size container, so its controls can shrink with it: on
      a phone a tile is a few centimetres wide and full labels covered half the
      picture. */
@@ -269,7 +270,9 @@ const STYLES = `
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
   .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
   .cam-dot-lbl{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;position:relative;top:-1px;}
-  .grid-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
+  .grid-label.fade{opacity:0;}
+  #play-info{z-index:6;}
+  .grid-label{transition:opacity .6s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
   .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
@@ -2086,12 +2089,26 @@ class FrigateModernHassCard extends HTMLElement {
   // shorter version, time first and without the camera name, which the dot and
   // the tile itself already give; the CSS picks one by the tile's width.
   _gridLabel(i, ev = null) {
+    const inner = this._labelInner(i, ev);
+    return inner ? `<div class="grid-label">${inner}</div>` : '';
+  }
+  // What a label shows, for a grid tile and the single view alike, so both
+  // name a camera and an event the same way.
+  _labelInner(i, ev = null) {
     const c = this._config.cameras[i]; if (!c) return '';
     const dot = this._config.cameras.length > 1 ? `<i class="cam-dot-lbl" style="background:${this._camColor(i)}"></i>` : '';
     const name = cap(camDisplayName(c));
-    if (!ev) return `<div class="grid-label">${dot}${name}</div>`;
+    if (!ev) return `${dot}${name}`;
     const what = cap(ev.label || ''), when = this._time(ev.start_time);
-    return `<div class="grid-label">${dot}<span class="gl-full">${name} · ${when} · ${what}</span><span class="gl-short">${when} · ${what}</span></div>`;
+    return `${dot}<span class="gl-full">${name} · ${when} · ${what}</span><span class="gl-short">${when} · ${what}</span>`;
+  }
+  // An event label says what started playing and then gets out of the way:
+  // it fades after a few seconds and does not come back, so it never sits over
+  // the video's own controls for long.
+  _fadeLabel(el) {
+    if (!el) return;
+    clearTimeout(el._fadeT); el.classList.remove('fade');
+    el._fadeT = setTimeout(() => el.classList.add('fade'), 3000);
   }
   // Light up the tiles of the cameras behind the event under the pointer.
   _hlTiles(list) {
@@ -2250,9 +2267,9 @@ class FrigateModernHassCard extends HTMLElement {
                 <div id="engine"><div class="ph">${ICONS.live}<span>Connecting…</span></div></div>
                 <div class="viewer" id="viewer" style="display:none"></div>
 <div class="feed-top" id="feed-top" style="display:none">
-                  <button class="btn back" id="back">${ICONS.back}<span>Live</span></button>
-                  <span class="play-info" id="play-info" hidden></span>
+                  <button class="btn back ctl-live" id="back">${ICONS.back}<span>Live</span></button>
                 </div>
+<div class="grid-label" id="play-info" hidden></div>
               </div>
               <div id="cam-grid" style="display:none"></div>
             </div>
@@ -2559,6 +2576,7 @@ class FrigateModernHassCard extends HTMLElement {
         <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
       this._playMedia(slot.querySelector('video'));
     }
+    this._fadeLabel(slot.querySelector('.grid-label'));
   }
 
   _open(id) {
@@ -2566,25 +2584,24 @@ class FrigateModernHassCard extends HTMLElement {
     if(!ev) return;
     if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
-    this._playInfo(this._evInfo(ev));
+    this._playInfo(ev);
   }
   _enter() {
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
     this.shadowRoot.querySelector('#feed-top').style.display='flex';
-    this._playInfo('');
+    this._playInfo(null);
     this._revealPlayer(this.shadowRoot.querySelector('#eng-wrap'));
   }
   // What is playing, beside the Live button. On a phone a tap on the timeline
   // plays straight away and there is no tooltip to have read first, so this is
   // where you find out what the tick was.
-  _playInfo(text) {
+  _playInfo(ev) {
     const el = this.shadowRoot.querySelector('#play-info'); if (!el) return;
-    el.textContent = text || ''; el.hidden = !text;
+    const inner = ev ? this._labelInner(this._activeCamIdx, ev) : '';
+    el.innerHTML = inner; el.hidden = !inner;
+    if (inner) this._fadeLabel(el);
   }
-  // Time first, everywhere a playing event is named: single view, grid tiles,
-  // narrow tiles. Two orders for the same thing read as two different things.
-  _evInfo(ev) { return `${this._time(ev.start_time)} · ${cap(ev.label || '')}`; }
   // On a phone the player sits above the list, so picking a clip far down the
   // list started it off screen and left you looking at the list. Scroll back up
   // to it, but only when its top is actually out of view: on a wide card the
@@ -2601,7 +2618,7 @@ class FrigateModernHassCard extends HTMLElement {
     });
   }
   _showLive() {
-    this._playing=null; this._playInfo('');
+    this._playing=null; this._playInfo(null);
     const v=this.shadowRoot.querySelector('#viewer'); v.innerHTML=''; v.style.display='none';
     this.shadowRoot.querySelector('#engine').style.display='block';
     this.shadowRoot.querySelector('#feed-top').style.display='none';
@@ -2689,7 +2706,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (!(start > 0) || end <= start) return fallback();
     const shown = this._showRecording(start, end, null, { fallback });
     const title = row.querySelector('.rev-t')?.textContent || '';
-    this._playInfo(`${this._time(start)} · ${title}`);
+    this._playInfo({ label: title, start_time: start });
     return shown;
   }
   async _showClipById(id) {

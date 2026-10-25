@@ -90,7 +90,6 @@ export const STYLES = `
   .ph-spin{width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--c-acc);border-radius:50%;animation:spin .8s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .feed-top{position:absolute;top:10px;left:12px;right:12px;z-index:6;display:flex;align-items:center;gap:8px;}
-  .play-info{background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .btn{display:inline-flex;align-items:center;gap:5px;background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .btn svg{width:14px;height:14px;}
 
@@ -112,10 +111,12 @@ export const STYLES = `
   .grid-slot.placeholder{background:#06090f;cursor:default;}
   .grid-slot.placeholder:hover::after{box-shadow:none;}
   .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  /* Same "Live" button as the single view, a size smaller for a tile. It was a
-     round cross, which read as "close this camera" rather than "back to live". */
-  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;padding:4px 8px;font-size:11px;gap:4px;}
-  .grid-close-btn svg{width:12px;height:12px;}
+  /* One Live button for a grid tile and the single view, so the two look like
+     the same thing. In a tile it replaced a round cross, which read as "close
+     this camera" rather than "back to live". */
+  .ctl-live,.grid-close-btn{padding:4px 8px;font-size:11px;gap:4px;}
+  .ctl-live svg,.grid-close-btn svg{width:12px;height:12px;}
+  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;}
   /* A tile is its own size container, so its controls can shrink with it: on
      a phone a tile is a few centimetres wide and full labels covered half the
      picture. */
@@ -144,7 +145,9 @@ export const STYLES = `
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
   .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
   .cam-dot-lbl{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;position:relative;top:-1px;}
-  .grid-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
+  .grid-label.fade{opacity:0;}
+  #play-info{z-index:6;}
+  .grid-label{transition:opacity .6s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
   .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
