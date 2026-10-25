@@ -18,15 +18,34 @@ export const STYLES = `
   .more-menu hr{border:0;border-top:1px solid var(--c-border);margin:3px 4px;}
   /* REC pill: shows a recording runs and is its stop button. Top left on the
      live picture; top right during a clip, where Live takes the left. */
-  .rec-pill{position:absolute;top:10px;left:12px;z-index:8;display:inline-flex;align-items:center;gap:6px;border:0;cursor:pointer;
+  .cam-badges{position:absolute;top:10px;left:12px;z-index:8;display:flex;gap:6px;align-items:center;}
+  #eng-wrap.viewing .cam-badges{left:auto;right:12px;}
+  .rec-pill{display:inline-flex;align-items:center;gap:6px;border:0;cursor:pointer;
     background:rgba(220,38,38,.9);color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:10px;font-variant-numeric:tabular-nums;}
   .rec-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:#fff;animation:recBlink 1s steps(2,start) infinite;}
   .rec-pill .rec-stop{margin-left:2px;padding-left:7px;border-left:1px solid rgba(255,255,255,.45);display:inline-flex;align-items:center;gap:4px;}
   .rec-pill .rec-stop::before{content:'';width:8px;height:8px;background:#fff;border-radius:1px;}
   .rec-pill:hover{background:rgba(185,28,28,.95);}
   .rec-pill:focus-visible{outline:2px solid #fff;outline-offset:2px;}
-  #eng-wrap.viewing .rec-pill{left:auto;right:12px;}
   @keyframes recBlink{to{visibility:hidden}}
+  /* ── Talk ── */
+  .talk-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(220,38,38,.9);color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:10px;}
+  .talk-pill.muted{background:rgba(37,99,235,.92);}
+  .talk-pill svg{width:12px;height:12px;}
+  .talk-bar{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);z-index:8;display:flex;align-items:center;gap:10px;}
+  .talk-bar .talk-mic{width:56px;height:56px;border-radius:50%;}
+  .talk-bar .talk-mic svg{width:26px;height:26px;}
+  .talk-bar .talk-mic.on{background:#dc2626;border-color:#dc2626;box-shadow:0 0 0 6px rgba(220,38,38,.3);}
+  #eng-wrap.talk-muted .talk-bar .talk-mic.on{background:#2563eb;border-color:#2563eb;box-shadow:0 0 0 6px rgba(37,99,235,.3);}
+  .talk-bar .talk-mute,.talk-bar .talk-x{width:36px;height:36px;border-radius:50%;font-size:14px;}
+  .talk-bar .talk-mute svg{width:18px;height:18px;}
+  .talk-bar .talk-mute[aria-pressed="true"]{background:rgba(220,38,38,.9);border-color:rgba(220,38,38,.9);}
+  .talk-hint{font-size:12px;font-weight:600;color:#fff;background:rgba(0,0,0,.5);padding:4px 9px;border-radius:9px;white-space:nowrap;}
+  /* While talking the picture gets a frame: red with the microphone open,
+     blue while muted. */
+  #eng-wrap::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:6;transition:box-shadow .2s;}
+  #eng-wrap.talk-live::after{box-shadow:inset 0 0 0 3px rgba(220,38,38,.95),inset 0 0 48px rgba(220,38,38,.45);}
+  #eng-wrap.talk-muted::after{box-shadow:inset 0 0 0 3px rgba(37,99,235,.95),inset 0 0 48px rgba(37,99,235,.35);}
   .cam-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9;}
   .cam-flash.go{animation:camFlash .5s ease-out;}
   @keyframes camFlash{from{opacity:.7}to{opacity:0}}

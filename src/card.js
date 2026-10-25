@@ -37,7 +37,7 @@ export class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false }));
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
@@ -79,6 +79,9 @@ export class FrigateModernHassCard extends HTMLElement {
       // ONVIF. On by default since nothing shows for a camera without it; off
       // for a wall display nobody should be steering cameras from.
       ptz: config.ptz !== false,
+      // Talking through the camera, for cameras whose go2rtc stream takes audio
+      // back. On by default since nothing shows without it.
+      talk: config.talk !== false,
       // A grid on a phone is a row of pictures too small to see anything in, so
       // it stacks by default. Off is for the deliberate case: two cameras side
       // by side, or a small grid as an overview.
@@ -144,6 +147,7 @@ export class FrigateModernHassCard extends HTMLElement {
 
   disconnectedCallback() {
     this._ptzStop('card left the page');
+    this._talkClose('card left the page');
     this._moreToggle(false);
     this._unwatchPtz();
     this._suspended = this._started;
@@ -298,6 +302,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const stateObj = this._hlsStateObj(entity);
     if (!stateObj) return;
     if (this._config.ptz) this._loadPtz(entity);
+    if (this._config.talk) this._loadTalk(entity);
 
     if (this._config.live_provider === 'go2rtc') {
       const t0 = Date.now();
@@ -854,6 +859,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const tag = MENU_IS_NEW ? '<span class="mi-new">new</span>' : '';
     const head = [];
     if (this._ptzCaps()) head.push(`<button role="menuitemcheckbox" aria-checked="${!!this._ptzOpen}" data-more="ptz">${ICONS.ptz}<span>PTZ controls</span>${tag}</button>`);
+    if (this._talkCaps()) head.push(`<button role="menuitemcheckbox" aria-checked="${!!this._talkOpen}" data-more="talk">${ICONS.mic}<span>Talk</span>${tag}</button>`);
     const recording = !!this._recs?.[entity];
     const tail = [
       `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
@@ -864,6 +870,7 @@ export class FrigateModernHassCard extends HTMLElement {
   _moreAction(what) {
     const entity = this._activeCam?.entity; if (!entity) return;
     if (what === 'ptz') return this._ptzOpen ? this._ptzClose('closed') : this._ptzShow();
+    if (what === 'talk') return this._talkOpen ? this._talkClose('closed') : this._talkShow();
     if (what === 'snapshot') return this._snapshot(entity);
     if (what === 'record') return this._recs?.[entity] ? this._recStop(entity) : this._recStart(entity);
   }
@@ -932,6 +939,155 @@ export class FrigateModernHassCard extends HTMLElement {
     const any = this._recs && Object.keys(this._recs).length;
     if (any && !this._recTick) this._recTick = setInterval(() => this._renderRec(), 1000);
     if (!any && this._recTick) { clearInterval(this._recTick); this._recTick = null; }
+  }
+
+  // ── Talk ──────────────────────────────────────────────────
+  // Two-way audio through go2rtc. The microphone goes out on a WebRTC
+  // connection of its own, set up over the same signed WebSocket route through
+  // Home Assistant as the live view, while the picture stays on whatever it was
+  // using. The media itself goes straight to go2rtc on port 8555, so it only
+  // works where Frigate's WebRTC does.
+  //
+  // Mute only stops the microphone track and keeps the connection, so unmuting
+  // is instant; ending the talk closes it. The microphone is released on every
+  // way out: ending, closing, a camera or view change, a clip, the page going
+  // to the background, the card leaving the page.
+
+  // Whether the camera's go2rtc stream takes audio back: its producer lists a
+  // sendonly audio media. Asked through the integration's go2rtc proxy, which
+  // masks credentials. A yes is kept for as long as the card is open; a no is
+  // asked again once, since the camera may not have been connected yet.
+  async _loadTalk(entity) {
+    const cc = this._camCache[entity];
+    if (!cc?.clientId || cc.talk === true || cc.talkAsking || (cc.talkTries || 0) >= 2) return;
+    cc.talkAsking = true; cc.talkTries = (cc.talkTries || 0) + 1;
+    let yes = false;
+    try {
+      const url = await this._signed(`/api/frigate/${cc.clientId}/go2rtc/api/streams?src=${encodeURIComponent(cc.cam)}`);
+      const r = await fetch(url);
+      if (r.ok) {
+        const j = await r.json();
+        const stream = j?.producers ? j : (j?.[cc.cam] || {});
+        yes = (stream.producers || []).some(p => (p.medias || []).some(m => /^audio,\s*sendonly/.test(m)));
+      }
+    } catch (_) {}
+    cc.talkAsking = false;
+    cc.talk = yes;
+    this._dbg('talk', entity, yes ? 'two-way audio available' : 'no two-way audio');
+    if (!yes && cc.talkTries < 2) setTimeout(() => this._loadTalk(entity), 6000);
+    if (entity === this._activeCam?.entity) this._renderStreamCtrl();
+  }
+  _talkCaps() {
+    if (!this._config?.talk || this._viewMode !== 'single') return false;
+    const cam = this._activeCam; if (!cam || cam.talk === false) return false;
+    return this._camCache[cam.entity]?.talk === true;
+  }
+  _talkShow() {
+    if (!this._talkCaps()) return;
+    this._talkOpen = true;
+    this._renderTalk(); this._renderStreamCtrl();
+  }
+  _talkClose(why) {
+    this._talkEnd(why);
+    if (!this._talkOpen) return;
+    this._talkOpen = false;
+    this._renderTalk(); this._renderStreamCtrl();
+  }
+  async _talkStart() {
+    if (this._talk) return;
+    const entity = this._activeCam?.entity, cc = this._camCache[entity];
+    if (!entity || !cc?.clientId) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return this._toast('Talking needs Home Assistant opened over https, the browser only allows the microphone there.', 7000);
+    }
+    const t = { entity, state: 'connecting', muted: false };
+    this._talk = t;
+    this._renderTalk();
+    try {
+      t.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      this._talkEnd('no microphone');
+      return this._toast(err?.name === 'NotAllowedError'
+        ? 'Microphone access was refused. Allow it for this site in your browser to talk.'
+        : `No microphone: ${err?.message || err}`, 7000);
+    }
+    if (this._talk !== t) { t.stream.getTracks().forEach(tr => tr.stop()); return; }
+    try {
+      const path = this._go2rtcPaths(cc.clientId, cc.cam)[0];
+      const signed = await this._signed(path);
+      if (this._talk !== t) return this._talkRelease(t);
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }] });
+      const ws = new WebSocket('ws' + location.origin.substring(4) + signed);
+      t.pc = pc; t.ws = ws;
+      t.stream.getAudioTracks().forEach(tr => pc.addTransceiver(tr, { direction: 'sendonly' }));
+      const send = m => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m)); };
+      pc.addEventListener('icecandidate', ev => send({ type: 'webrtc/candidate', value: ev.candidate ? ev.candidate.toJSON().candidate : '' }));
+      pc.addEventListener('connectionstatechange', () => {
+        if (this._talk !== t) return;
+        this._dbg('talk connection', pc.connectionState);
+        if (pc.connectionState === 'connected') { clearTimeout(t.timer); t.state = 'live'; this._renderTalk(); }
+        else if (pc.connectionState === 'failed') this._talkFail(t);
+      });
+      ws.addEventListener('message', ev => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        if (msg.type === 'webrtc/answer') pc.setRemoteDescription({ type: 'answer', sdp: msg.value }).catch(() => this._talkFail(t));
+        else if (msg.type === 'webrtc/candidate' && msg.value) pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }).catch(() => {});
+        else if (msg.type === 'error') { this._dbg('talk error from go2rtc', msg.value); this._talkFail(t); }
+      });
+      ws.addEventListener('open', async () => {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        send({ type: 'webrtc/offer', value: offer.sdp });
+      });
+      // A connection that does not come up in time is not going to.
+      t.timer = setTimeout(() => { if (this._talk === t && t.state !== 'live') this._talkFail(t); }, 12000);
+    } catch (err) {
+      this._dbg('talk setup failed', err);
+      this._talkFail(t);
+    }
+  }
+  _talkFail(t) {
+    if (this._talk !== t) return;
+    this._talkEnd('could not connect');
+    this._toast('Could not reach the camera for talking. It needs WebRTC set up in Frigate, and from outside port 8555 open. See the README.', 8000);
+  }
+  _talkEnd(why) {
+    const t = this._talk; if (!t) return;
+    this._talk = null;
+    this._dbg('talk ended', why);
+    this._talkRelease(t);
+    this._renderTalk();
+  }
+  // Stop the microphone and close the connection; the browser's microphone
+  // indicator goes off with the last stopped track.
+  _talkRelease(t) {
+    clearTimeout(t.timer);
+    try { t.stream?.getTracks().forEach(tr => tr.stop()); } catch (_) {}
+    try { t.pc?.close(); } catch (_) {}
+    try { t.ws?.close(); } catch (_) {}
+  }
+  _talkMute(v) {
+    const t = this._talk; if (!t) return;
+    t.muted = !!v;
+    t.stream?.getAudioTracks().forEach(tr => { tr.enabled = !t.muted; });
+    this._renderTalk();
+  }
+  _renderTalk() {
+    const q = sel => this.shadowRoot?.querySelector(sel);
+    const bar = q('#talk-bar'), wrap = q('#eng-wrap'); if (!bar || !wrap) return;
+    const t = this._talk, live = t?.state === 'live';
+    bar.hidden = !this._talkOpen;
+    q('#talk-mic')?.classList.toggle('on', !!t);
+    q('#talk-mic')?.setAttribute('aria-label', t ? 'Stop talking' : 'Start talking');
+    const mute = q('#talk-mute');
+    if (mute) { mute.hidden = !live; mute.setAttribute('aria-pressed', String(!!t?.muted)); mute.setAttribute('aria-label', t?.muted ? 'Unmute microphone' : 'Mute microphone'); }
+    const hint = q('#talk-hint');
+    if (hint) hint.textContent = !t ? 'Tap to talk' : (t.state === 'connecting' ? 'Connecting…' : 'Tap to stop');
+    const pill = q('#talk-pill');
+    if (pill) { pill.hidden = !live; pill.classList.toggle('muted', !!t?.muted); const tx = q('#talk-txt'); if (tx) tx.textContent = t?.muted ? 'Muted' : 'Talking'; }
+    // Red while the microphone is open, blue while muted.
+    wrap.classList.toggle('talk-live', live && !t.muted);
+    wrap.classList.toggle('talk-muted', live && !!t.muted);
   }
 
   // ── PTZ ───────────────────────────────────────────────────
@@ -1046,7 +1202,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // Leaving the page or the window stops a move in progress.
   _watchPtz() {
     if (this._ptzWatch) return;
-    this._ptzWatch = () => { if (document.hidden) this._ptzStop('page hidden'); };
+    this._ptzWatch = () => { if (document.hidden) { this._ptzStop('page hidden'); this._talkEnd('page hidden'); } };
     this._ptzBlur = () => this._ptzStop('window lost focus');
     document.addEventListener('visibilitychange', this._ptzWatch);
     window.addEventListener('blur', this._ptzBlur);
@@ -1153,6 +1309,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // then immediately tear it down again.
   _setViewMode(mode, opts = {}) {
     this._moreToggle(false);
+    this._talkClose('view changed');
     this._ptzClose('view changed');
     this._viewMode = mode;
     const card = this.shadowRoot.querySelector('.card');
@@ -1186,6 +1343,7 @@ export class FrigateModernHassCard extends HTMLElement {
   async _switchCamera(idx) {
     if (idx === this._activeCamIdx && this._viewMode === 'single') return;
     this._ptzClose('switched camera');
+    this._talkClose('switched camera');
     this._moreToggle(false);
     // Clicking a cam tab while in grid mode switches to single view of that camera
     if (this._viewMode === 'grid') this._setViewMode('single', { mount: false });
@@ -1444,7 +1602,8 @@ export class FrigateModernHassCard extends HTMLElement {
                   <button class="btn back ctl-live" id="back">${ICONS.back}<span>Live</span></button>
                 </div>
 <div class="grid-label" id="play-info" hidden></div>
-<button class="rec-pill" id="rec-pill" type="button" title="Stop recording" hidden>REC <b id="rec-time">0:00</b><span class="rec-stop">Stop</span></button>
+<div class="cam-badges"><button class="rec-pill" id="rec-pill" type="button" title="Stop recording" hidden>REC <b id="rec-time">0:00</b><span class="rec-stop">Stop</span></button><span class="talk-pill" id="talk-pill" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg><span id="talk-txt">Talking</span></span></div>
+<div class="talk-bar" id="talk-bar" hidden><button class="pbtn talk-mic" id="talk-mic" type="button" aria-label="Start talking"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></button><span class="talk-hint" id="talk-hint">Tap to talk</span><button class="pbtn talk-mute" id="talk-mute" type="button" aria-label="Mute microphone" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5a3 3 0 0 0-5.97-.4L15 9.57v1.6zM4.27 3 3 4.27l6.01 6.01V11a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.66 1.66A5 5 0 0 1 7 11H5a7 7 0 0 0 6 6.92V21h2v-3.08a6.9 6.9 0 0 0 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg></button><button class="pbtn talk-x" id="talk-close" type="button" aria-label="Close talk">✕</button></div>
 <div class="cam-flash" id="cam-flash"></div>
 <div class="ptz-pad" id="ptz-pad" hidden><div class="ptz-zoom" id="ptz-zoom"><button class="pbtn" data-ptz="zoom:in" aria-label="Zoom in">+</button><button class="pbtn" data-ptz="zoom:out" aria-label="Zoom out">−</button></div><div class="ptz-dpad" id="ptz-dpad"><div class="hub"></div><button class="pbtn up" data-ptz="move:up" aria-label="Tilt up"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 15.4 12 10.8l4.6 4.6L18 14l-6-6-6 6z"/></svg></button><button class="pbtn down" data-ptz="move:down" aria-label="Tilt down"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg></button><button class="pbtn left" data-ptz="move:left" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.4 16.6 10.8 12l4.6-4.6L14 6l-6 6 6 6z"/></svg></button><button class="pbtn right" data-ptz="move:right" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z"/></svg></button></div><button class="pbtn ptz-close" id="ptz-close" aria-label="Close PTZ controls">✕</button></div>
               </div>
@@ -1630,6 +1789,9 @@ export class FrigateModernHassCard extends HTMLElement {
     // A click anywhere else in the card closes the menu and still does its own thing.
     if (this._moreOpen && !e.target.closest('.more-wrap')) this._moreToggle(false);
     if (e.target.closest('#rec-pill')) return this._recStop(this._activeCam?.entity);
+    if (e.target.closest('#talk-mic')) return this._talk ? this._talkEnd('ended') : this._talkStart();
+    if (e.target.closest('#talk-mute')) return this._talkMute(!this._talk?.muted);
+    if (e.target.closest('#talk-close')) return this._talkClose('closed');
     if (e.target.closest('#back')) return this._showLive();
     if (e.target.closest('#ptz-close')) return this._ptzClose('closed with the cross');
     const ptzPre = e.target.closest('[data-ptz-preset]');
@@ -1780,6 +1942,7 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   _enter() {
     this._ptzClose('playing a clip');
+    this._talkClose('playing a clip');
     this.shadowRoot.querySelector('#eng-wrap')?.classList.add('viewing');
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';

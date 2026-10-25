@@ -270,7 +270,50 @@ async function recording() {
   expect('create_event:snap', 'snapshot');
 }
 
-Promise.all([recordingsLoaded(), ptz(), recording()])
-  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings, every PTZ move ends with a stop, recordings start and stop`))
+// Talk: detected from a sendonly audio media on the go2rtc producer; starting
+// sends an offer over the WebSocket, mute only disables the track, and ending
+// stops the microphone and closes both connections.
+async function talk() {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }] });
+  card._hass = { states: {}, callWS: async m => ({ path: m.path }) };
+  card._signed = async p => p;
+  card._viewMode = 'single'; card._activeCamIdx = 0;
+  card._camCache['camera.one'] = { cam: 'one', clientId: 'frigate', discovered: true };
+  card._renderStreamCtrl = () => {}; card._renderTalk = () => {}; card._toast = () => {};
+  const medias = ['video, recvonly, H265', 'audio, recvonly, MPEG4-GENERIC/16000', 'audio, sendonly, PCMU/8000'];
+  context.fetch = async () => ({ ok: true, json: async () => ({ producers: [{ medias }] }) });
+  await card._loadTalk('camera.one');
+  if (card._camCache['camera.one'].talk !== true) fail('talk', 'a sendonly audio producer should mean two-way audio');
+  if (!card._talkCaps()) fail('talk', 'a camera with two-way audio should offer Talk');
+
+  const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
+  context.navigator.mediaDevices = { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) };
+  context.location = { origin: 'https://ha.test' };
+  const sent = []; let ws, pc;
+  context.WebSocket = class { constructor(u) { this.url = u; this.readyState = 0; this.h = {}; ws = this; }
+    addEventListener(t, f) { this.h[t] = f; } send(m) { sent.push(JSON.parse(m).type); } close() { this.closed = true; } };
+  context.WebSocket.OPEN = 1; context.WebSocket.CLOSED = 3;
+  context.RTCPeerConnection = class { constructor() { this.h = {}; this.connectionState = 'new'; pc = this; }
+    addTransceiver(tr, o) { this.added = [tr, o.direction]; } addEventListener(t, f) { this.h[t] = f; }
+    async createOffer() { return { sdp: 'offer' }; } async setLocalDescription() {} async setRemoteDescription() {} async addIceCandidate() {}
+    close() { this.closed = true; } };
+  await card._talkStart(); await wait(0);
+  if (!ws || !/^wss:\/\/ha\.test\/api\/frigate\/frigate\/go2rtc\/ws\/api\/ws\?src=one/.test(ws.url)) fail('talk', `unexpected WebSocket ${ws && ws.url}`);
+  if (!pc.added || pc.added[0] !== track || pc.added[1] !== 'sendonly') fail('talk', 'the microphone should go out as a sendonly track');
+  ws.readyState = 1; await ws.h.open(); await wait(0);
+  if (!sent.includes('webrtc/offer')) fail('talk', 'no offer sent over the WebSocket');
+  pc.connectionState = 'connected'; pc.h.connectionstatechange();
+  if (card._talk?.state !== 'live') fail('talk', 'a connected peer should make the talk live');
+  card._talkMute(true);
+  if (track.enabled || !pc || pc.closed) fail('talk', 'mute should disable the track and keep the connection');
+  card._talkMute(false);
+  card._talkOpen = true; card._talkClose('switched camera');
+  if (!track.stopped || !pc.closed || !ws.closed || card._talk) fail('talk', 'ending should stop the microphone and close both connections');
+}
+
+Promise.all([recordingsLoaded(), ptz(), recording(), talk()])
+  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings, every PTZ move ends with a stop, recordings start and stop, talk releases the microphone`))
   .catch(err => fail('async tests', err));
 

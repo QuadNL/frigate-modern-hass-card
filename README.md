@@ -95,6 +95,7 @@ default_view: single     # or 'grid'
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
 | `ptz` | boolean | `true` | Pan, tilt and zoom controls for cameras that support them. Set `false` on the card or on one camera to hide them |
+| `talk` | boolean | `true` | Talk through cameras that support two-way audio. Set `false` on the card or on one camera to hide it |
 | `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
 
 ### Grid layout
@@ -160,10 +161,25 @@ that way:
 events_collapsed: true
 ```
 
+### Camera actions
+
+In the single view the **⋯** button holds what you can do with the camera on
+screen. Each item only appears when the camera supports it.
+
+- **PTZ controls**: a direction pad, zoom and presets
+- **Talk**: talk through the camera's speaker
+- **Snapshot**: saves a snapshot as a Frigate event
+- **Start recording**: records until you stop it, from the menu or from the
+  red REC label on the picture. A recording ends by itself after 30 minutes, so
+  one is never left running if the card is closed
+
+Snapshots and recordings are manual events in Frigate, so they show up in
+Frigate and in the card's clips like any other event.
+
 ### PTZ cameras
 
-A camera that Frigate can steer gets a **PTZ** button in the single view. It
-shows a direction pad, zoom and the camera's presets, whichever the camera
+A camera that Frigate can steer gets **PTZ controls** in the ⋯ menu. They
+show a direction pad, zoom and the camera's presets, whichever the camera
 supports. Hold a direction to move and let go to stop; a short tap nudges.
 
 Nothing to configure in the card. Frigate has to reach the camera over ONVIF:
@@ -192,6 +208,38 @@ cameras:
   - entity: camera.garden
     ptz: false      # or one camera
 ```
+
+### Talking through a camera
+
+**Talk** appears in the ⋯ menu for cameras whose go2rtc stream supports two-way
+audio. Tap the microphone to start, tap again to stop. While you talk the
+picture has a red frame; the mute button stops your microphone without hanging
+up, and the frame turns blue.
+
+Talking uses WebRTC, which needs more setup than the live view:
+
+- **Home Assistant over https.** The browser only allows the microphone there.
+- **WebRTC set up in Frigate.** The audio goes straight to go2rtc on port 8555,
+  not through Home Assistant. When Frigate runs outside the Home Assistant app,
+  tell go2rtc the address your browser can reach it on:
+
+  ```yaml
+  # frigate config
+  go2rtc:
+    webrtc:
+      candidates:
+        - 192.168.1.10:8555   # the machine Frigate runs on
+        - stun:8555
+  ```
+
+  In Docker, map `8555:8555/tcp` and `8555:8555/udp` as well.
+- **From outside your home**, forward port 8555 TCP and UDP on your router to
+  the Frigate machine.
+- **A camera that can play audio.** If Frigate itself shows two-way talk for the
+  camera, the card can use it.
+
+See Frigate's [WebRTC documentation](https://docs.frigate.video/configuration/live/#webrtc-extra-configuration)
+for the details. If talking fails, the card says so and the live view carries on.
 
 ## Low-latency live view with go2rtc
 

@@ -59,6 +59,8 @@ export const ICONS = {
   // means it is hidden. A chevron alone did not say what it would do.
   panelOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="14" y="6" width="6" height="12" fill="currentColor" stroke="none" rx="1"/></svg>',
   panelOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M14 5v14"/></svg>',
+  mic:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>',
+  micOff:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5a3 3 0 0 0-5.97-.4L15 9.57v1.6zM4.27 3 3 4.27l6.01 6.01V11a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.66 1.66A5 5 0 0 1 7 11H5a7 7 0 0 0 6 6.92V21h2v-3.08a6.9 6.9 0 0 0 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>',
   dots:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>',
   record:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
   ptz:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 8.5 5.5h2.5V9h2V5.5h2.5L12 2zm0 20 3.5-3.5H13V15h-2v3.5H8.5L12 22zM2 12l3.5 3.5V13H9v-2H5.5V8.5L2 12zm20 0-3.5-3.5V11H15v2h3.5v2.5L22 12z"/></svg>',
