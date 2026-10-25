@@ -79,6 +79,7 @@ default_view: single     # or 'grid'
 | `subtitle` | string | none | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |
 | `theme` | string | `dark` | `dark`, `light`, `auto` |
+| `time_format` | string | `auto` | `auto` follows the 12/24 hour setting in your Home Assistant profile; `12h` or `24h` to override |
 | `accent_color` | string | none | Custom accent colour (hex) |
 | `bg_color` | string | none | Custom background colour (hex) |
 | `window_hours` | number | `6` | Hours the timeline shows when the card opens. Zoom and drag to see more |

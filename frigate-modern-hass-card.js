@@ -1145,6 +1145,9 @@ class FrigateModernHassCard extends HTMLElement {
       title: config.title || null,
       subtitle: config.subtitle || null,
       window_hours: config.window_hours || 6,
+      // 'auto' follows the 12/24 hour choice in the user's Home Assistant
+      // profile; '12h' and '24h' override it for this card.
+      time_format: ['12h','24h'].includes(config.time_format) ? config.time_format : 'auto',
       refresh_seconds: Math.max(15, config.refresh_seconds || 45),
       browse_expanded: config.browse_expanded === true,
       rotate_seconds: config.rotate_seconds ?? 0,
@@ -2673,7 +2676,7 @@ class FrigateModernHassCard extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'rec-seek-wrap';
     // Helper: offset seconds → absolute wall-clock label
-    const toTime = v => new Date((rs + v) * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const toTime = v => this._time(rs + v, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
     wrap.innerHTML = `<div class="rec-seek-row">
       <input type="range" class="rec-seek-bar" min="0" max="${d}" value="0" step="1">
       <span class="rec-seek-lbl">▶ ${this._time(rs)}</span>
@@ -2805,7 +2808,7 @@ class FrigateModernHassCard extends HTMLElement {
       const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       cells+=`<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds)?'<i class="cdot"></i>':''}</button>`;
     }
-    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString([],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
+    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
       <div class="cal-dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="cal-grid">${cells}</div>`;
   }
@@ -2912,9 +2915,9 @@ class FrigateModernHassCard extends HTMLElement {
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
   _renderRange() {
     const el=this._$('#tl-range'); if(!el) return;
-    const span=this._winEnd-this._winStart; const fmt=t=>new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    if(span<=DAY+60) el.textContent=`${new Date(this._winEnd*1000).toLocaleDateString([],{day:'2-digit',month:'short'})} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
-    else el.textContent=`${new Date(this._winStart*1000).toLocaleDateString([],{day:'2-digit',month:'short'})} – ${this._isNowWindow()?'now':new Date(this._winEnd*1000).toLocaleDateString([],{day:'2-digit',month:'short'})}`;
+    const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
+    if(span<=DAY+60) el.textContent=`${this._day(this._winEnd)} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
+    else el.textContent=`${this._day(this._winStart)} – ${this._isNowWindow()?'now':this._day(this._winEnd)}`;
   }
   _renderLegend() {
     const el=this._$('#legend'); if(!el) return;
@@ -2941,7 +2944,29 @@ class FrigateModernHassCard extends HTMLElement {
       <div class="latest-body">${this._eventCardHTML(events[0],false,true)}</div>`;
   }
 
-  _time(ts) { return new Date(ts*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+  // Locale and clock for every time and date the card shows. Follows the user's
+  // Home Assistant profile, which has its own 12/24 hour setting and language,
+  // rather than the browser's, unless the card config says otherwise. hourCycle
+  // h23 rather than hour12:false, which some browsers render as 24:05 at
+  // midnight.
+  _timeFmt(opts = {}) {
+    const loc = this._hass?.locale || {};
+    const pick = this._config?.time_format;
+    const o = { ...opts };
+    const want = pick === '12h' ? '12' : pick === '24h' ? '24' : loc.time_format;
+    if (want === '12') o.hour12 = true;
+    else if (want === '24') o.hourCycle = 'h23';
+    // 'system' means the browser's own conventions, 'language' Home Assistant's.
+    const lang = loc.time_format === 'system' ? undefined : (loc.language || undefined);
+    return [lang, o];
+  }
+  _time(ts, opts = { hour: '2-digit', minute: '2-digit' }) {
+    const [lang, o] = this._timeFmt(opts);
+    return new Date(ts * 1000).toLocaleTimeString(lang, o);
+  }
+  _day(ts, opts = { day: '2-digit', month: 'short' }) {
+    return new Date(ts * 1000).toLocaleDateString(this._timeFmt()[0], opts);
+  }
   _dur(ev) { return Math.max(1,Math.round((ev.end_time||Date.now()/1000)-ev.start_time)); }
   _zones() { const z=new Set(); this._allDisplayEvents().forEach(e=>(e.zones||[]).forEach(x=>z.add(x))); return [...z]; }
   _labels() { const l=new Set(); this._allDisplayEvents().forEach(e=>e.label&&l.add(e.label)); return [...l]; }
@@ -3236,6 +3261,13 @@ class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
         </div>
         <div style="margin-top:8px">
+          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
+          <div class="radio-row">
+            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
+            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
+          </div>
+        </div>
+        <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
         </div>
         <div style="margin-top:6px">
@@ -3453,6 +3485,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // default view
     const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
     c.default_view = dv;
+    const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
+    if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
     // hidden tabs

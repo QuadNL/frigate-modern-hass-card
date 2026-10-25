@@ -145,6 +145,13 @@ export class FrigateModernHassCardEditor extends HTMLElement {
           <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
         </div>
         <div style="margin-top:8px">
+          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
+          <div class="radio-row">
+            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
+            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
+          </div>
+        </div>
+        <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
         </div>
         <div style="margin-top:6px">
@@ -363,6 +370,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     // default view
     const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
     c.default_view = dv;
+    const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
+    if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
     // hidden tabs
