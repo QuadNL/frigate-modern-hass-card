@@ -2469,7 +2469,16 @@ class FrigateModernHassCard extends HTMLElement {
     const maxChunk = 7200;
     const chunkEnd = Math.min(e, start + maxChunk);
     const clipDur = chunkEnd - start; // real clip length in seconds
-    const url=await this._signed(`/api/frigate/${clientId}/recording/${cam}/start/${start}/end/${chunkEnd}`);
+    // Frigate's dynamic recording/start/.../end/... endpoint concatenates
+    // segments on the fly and never supports Range requests (chunked
+    // transfer, no Accept-Ranges/206 at any layer) — Safari's <video>
+    // refuses to play a progressive MP4 without Range support. Route Safari
+    // to the HLS time-range playlist instead (same fix as _resolveClipUrl
+    // uses for event clips); other browsers keep the existing MP4 path.
+    const recPath = this._hlsNative()
+      ? `vod/${cam}/start/${start}/end/${chunkEnd}/index.m3u8`
+      : `recording/${cam}/start/${start}/end/${chunkEnd}`;
+    const url=await this._signed(`/api/frigate/${clientId}/${recPath}`);
     if (this._playSeq !== token) return;
     const fromLbl = seekFrom
       ? `<div class="seek-from-lbl">▶ Playing from ${this._time(seekFrom)}</div>`
