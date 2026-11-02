@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const CARD_TAG = 'frigate-modern-hass-card';
 const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -19,6 +19,10 @@ const MIN_TILE_PX = 200;
 // so every phone falls under it: an Android phone is 412 CSS px wide, the
 // largest iPhone 430.
 const PHONE_PX = 500;
+// Narrowest a tile may get on a phone when stacking is switched off. Turning it
+// off asks for a grid there, and the general floor above would make a 375px
+// phone a single column again, quietly undoing that choice.
+const PHONE_MIN_TILE_PX = 100;
 const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 const ICONS = {
@@ -55,7 +59,36 @@ const LABEL_COLORS = { person:'#3b82f6', car:'#a855f7', motion:'#f59e0b', dog:'#
 const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#eab308','#ef4444','#f97316'];
 function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
-const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// One colour per camera, in the order of the camera list. Eight, because in
+// grid view these tell the cameras apart on a single shared timeline, and with
+// four the fifth camera looked exactly like the first.
+const CAM_COLORS = [
+  'rgba(30,80,200,.5)', 'rgba(210,80,30,.5)', 'rgba(30,170,80,.5)', 'rgba(170,30,180,.5)',
+  'rgba(220,180,20,.5)', 'rgba(20,170,190,.5)', 'rgba(220,50,110,.5)', 'rgba(140,150,160,.5)',
+];
+// Recording band in grid view, where blue already means the first camera.
+const REC_NEUTRAL = 'rgba(148,163,184,.35)';
+// A group of events that spans cameras or kinds, so no single colour fits.
+const REC_GROUP = '#64748b';
+// The same colour at full strength, for ticks and legend swatches. Past eight
+// cameras the palette would repeat, so camera 9 looked like camera 1: spread
+// that many hues evenly around the wheel instead, one per camera. At sixteen the
+// neighbours get close, which is why the tooltip names the camera as well.
+// Always hex, because the editor shows it in an <input type="color">, which
+// accepts nothing else.
+const hex2 = v => Math.round(v).toString(16).padStart(2, '0');
+function hslHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${hex2(f(0) * 255)}${hex2(f(8) * 255)}${hex2(f(4) * 255)}`;
+}
+function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return hslHex(Math.round(i * 360 / count), 70, 55);
+  const [r, g, b] = CAM_COLORS[i % CAM_COLORS.length].match(/\d+/g).map(Number);
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody
@@ -95,6 +128,9 @@ function camDisplayName(c) { return c.name || (c.entity||'').replace(/^camera\./
 // ── styles ───────────────────────────────────────────────────
 const STYLES = `
   :host{display:block;}
+  /* The hidden attribute loses to any class that sets display, which kept the
+     timeline's Back button on screen with nothing to go back to. */
+  [hidden]{display:none !important;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
 
@@ -190,12 +226,33 @@ const STYLES = `
      later tiles backfill the gaps instead of the grid keeping empty squares. */
   .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);grid-auto-flow:dense;grid-auto-rows:1fr;}
   .grid-slot{position:relative;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
-  .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
+  /* The hover frame is drawn on top of the stream. As an inset shadow on the
+     tile itself it sat under the video, so it only showed in the black bars
+     beside a 16:9 picture and not at all when the picture filled the tile. */
+  .grid-slot::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:4;box-shadow:inset 0 0 0 2px transparent;transition:box-shadow .15s;}
+  .grid-slot:hover::after{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
+  /* Lit from the timeline: the tile of the camera whose event is pointed at. */
+  .grid-slot.tick-hl::after{box-shadow:inset 0 0 0 3px var(--hl,#3b82f6);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
-  .grid-slot.placeholder:hover{box-shadow:none;}
+  .grid-slot.placeholder:hover::after{box-shadow:none;}
   .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  .grid-close-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;}
-  .grid-close-btn:hover{background:rgba(239,68,68,.7);}
+  /* One Live button for a grid tile and the single view, so the two look like
+     the same thing. In a tile it replaced a round cross, which read as "close
+     this camera" rather than "back to live". */
+  .ctl-live,.grid-close-btn{padding:4px 8px;font-size:11px;gap:4px;}
+  .ctl-live svg,.grid-close-btn svg{width:12px;height:12px;}
+  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;}
+  /* A tile is its own size container, so its controls can shrink with it: on
+     a phone a tile is a few centimetres wide and full labels covered half the
+     picture. */
+  .grid-slot{container-type:inline-size;}
+  .gl-short{display:none;}
+  @container (max-width: 260px) {
+    .grid-close-btn span{display:none;}
+    .grid-close-btn{padding:4px 6px;}
+    .gl-full{display:none;}
+    .gl-short{display:inline;}
+  }
   /* per-slot fullscreen button — appears on hover, bottom-right */
   .grid-fs-btn{position:absolute;bottom:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;}
   .grid-slot:hover .grid-fs-btn{opacity:1;}
@@ -212,7 +269,10 @@ const STYLES = `
   .cam-grid:-webkit-full-screen{width:100vw;height:100vh;max-height:none!important;background:#000;animation:fsIn .25s cubic-bezier(.22,.8,.22,1);}
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
   .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
-  .grid-label{position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
+  .cam-dot-lbl{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;position:relative;top:-1px;}
+  .grid-label.fade{opacity:0;}
+  #play-info{z-index:6;}
+  .grid-label{transition:opacity .6s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
   .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
@@ -274,7 +334,8 @@ const STYLES = `
 
   /* ── timeline ── */
   .tl-sec{padding:8px 13px;border-bottom:1px solid var(--c-border);}
-  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;flex-wrap:wrap;gap:6px;}
+  .tl-where{display:flex;align-items:center;gap:8px;min-width:0;}
   .tl-tools{display:flex;gap:4px;}
   .tool{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:7px;padding:4px 7px;cursor:pointer;}
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
@@ -284,6 +345,11 @@ const STYLES = `
   .tl-track.grab{cursor:grabbing;}
   .tl-track::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12));}
   .t-rec{position:absolute;top:0;height:100%;background:rgba(30,80,200,.5);pointer-events:none;}
+  /* Several events too close to tell apart, shown as one block with a count.
+     A tap zooms in on them. */
+  .t-grp{position:absolute;top:50%;transform:translate(-50%,-50%);min-width:16px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:4px;z-index:2;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.6);box-shadow:0 0 0 1px rgba(0,0,0,.35);}
+  .t-grp:hover{filter:brightness(1.15);}
   .t-ev{position:absolute;top:50%;transform:translateY(-50%);width:4px;height:18px;border-radius:3px;z-index:1;cursor:pointer;} .t-ev:hover{width:6px;}
   .tl-now{position:absolute;top:0;bottom:0;width:2px;background:#ef4444;pointer-events:none;}
   .tl-labels{display:flex;justify-content:space-between;margin-top:3px;} .tl-labels span{font-size:9px;color:var(--c-text4);}
@@ -292,6 +358,9 @@ const STYLES = `
   /* ── filter + cal ── */
   .filter-panel,.cal-panel{background:var(--c-bg-panel);border:1px solid var(--c-border2);border-radius:9px;padding:8px;margin-bottom:7px;}
   .frow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:4px;} .frow:last-child{margin-bottom:0;} .frow-l{font-size:10px;color:var(--c-text3);width:38px;text-transform:uppercase;flex-shrink:0;}
+  /* Events too close to separate by zooming, listed to pick from. */
+  .grp-panel{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .grp-panel .chip{display:inline-flex;align-items:center;padding:5px 10px;font-size:12px;}
   .chip{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:14px;padding:3px 9px;font-size:11px;cursor:pointer;}
   .chip.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;} .cal-head b{font-size:12px;} .cal-head button{background:none;border:none;color:#93c5fd;font-size:17px;cursor:pointer;padding:0 5px;}
@@ -1119,7 +1188,7 @@ class FrigateModernHassCard extends HTMLElement {
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span) }));
+      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null }));
     else if (config.camera_entity)
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
@@ -1128,7 +1197,10 @@ class FrigateModernHassCard extends HTMLElement {
       cameras,
       title: config.title || null,
       subtitle: config.subtitle || null,
-      window_hours: config.window_hours || 24,
+      window_hours: config.window_hours || 6,
+      // 'auto' follows the 12/24 hour choice in the user's Home Assistant
+      // profile; '12h' and '24h' override it for this card.
+      time_format: ['12h','24h'].includes(config.time_format) ? config.time_format : 'auto',
       refresh_seconds: Math.max(15, config.refresh_seconds || 45),
       browse_expanded: config.browse_expanded === true,
       rotate_seconds: config.rotate_seconds ?? 0,
@@ -1206,7 +1278,21 @@ class FrigateModernHassCard extends HTMLElement {
   // Users can override in their dashboard yaml via grid_options.
   getGridSize() { return { columns: 2, rows: 3 }; }
 
+  // Home Assistant may reattach this same instance when you come back to the
+  // view, rather than building a new card. By then _started is long true, so
+  // nothing in the normal start path runs again: everything torn down below has
+  // to be brought back here, or the card returns looking normal with no picture,
+  // no event refresh and no live updates (#15).
+  connectedCallback() {
+    if (!this._suspended) return; // first attach: the hass setter starts the card
+    this._suspended = false;
+    this._resume();
+  }
+
   disconnectedCallback() {
+    this._suspended = this._started;
+    this._resumeRotate = !!this._rotateTimer;
+    this._resumeAtNow = this._started && this._isNowWindow();
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
     if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
@@ -1217,6 +1303,30 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   // ── init ─────────────────────────────────────────────────
+  _startRefresh() {
+    clearInterval(this._refresh);
+    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+  }
+  _resume() {
+    if (!this._config || !this._hass) return;
+    this._dbg('reattached to the page, restoring what was stopped on leaving');
+    this._ro?.observe(this);
+    this._subscribe();
+    this._startRefresh();
+    // Watching live when you left: carry the window on to now, or the card comes
+    // back stuck at the moment you navigated away.
+    if (this._resumeAtNow) {
+      const now = Math.floor(Date.now() / 1000), span = this._winEnd - this._winStart;
+      this._winEnd = now; this._winStart = now - span;
+    }
+    // A clip loaded as a blob was released on leaving and will not play again.
+    const clip = this.shadowRoot.querySelector('#viewer video');
+    if (clip?.src?.startsWith('blob:')) this._showLive();
+    if (this._viewMode === 'grid') this._mountGrid();
+    else this._mountEngine();
+    this._loadWindow(true);
+    if (this._resumeRotate) this._startRotate();
+  }
   async _start() {
     // Before any awaits: the layout classes decide the stream's size, and
     // without them the card renders 16:9 across its full width — briefly
@@ -1234,7 +1344,7 @@ class FrigateModernHassCard extends HTMLElement {
     await this._loadWindow(true);
     this._loadCalendar();
     this._subscribe();
-    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+    this._startRefresh();
     const shouldRotate = this._config.rotate_on_load || this._config.rotate_seconds > 0;
     if (shouldRotate && this._config.cameras.length > 1) this._startRotate();
   }
@@ -1687,11 +1797,14 @@ class FrigateModernHassCard extends HTMLElement {
   }
   _gridColumns(n) {
     const layout = this._activeLayout();
-    const min = this._minTilePx();
     // On a phone, stacking wins over everything else, a chosen layout included.
     // Four tiles on a 412px screen is not a grid, it is four thumbnails.
     const w0 = this._cardWidth || this.offsetWidth || 0;
-    if (this._config.stack_on_mobile && w0 && w0 < PHONE_PX) return 1;
+    const phone = !!w0 && w0 < PHONE_PX;
+    if (this._config.stack_on_mobile && phone) return 1;
+    // Stacking switched off is a request for a grid on the phone, so the floor
+    // there is a phone-sized one unless the config names its own.
+    const min = phone && !this._config.min_tile_width ? PHONE_MIN_TILE_PX : this._minTilePx();
     if (layout?.cols) {
       // Still bounded by width: a four column layout on a phone is unreadable.
       const w = this._cardWidth || this.offsetWidth || 0;
@@ -1763,10 +1876,7 @@ class FrigateModernHassCard extends HTMLElement {
         } else {
           this._mountGridHaStream(slot, c.entity);
         }
-        // label
-        const lbl = document.createElement('div');
-        lbl.className = 'grid-label'; lbl.textContent = name;
-        slot.appendChild(lbl);
+        slot.insertAdjacentHTML('beforeend', this._gridLabel(i));
         // Click → open this camera in single view (_switchCamera switches the
         // view mode itself). Leave wall-display fullscreen first, otherwise we
         // would land on a single view stuck behind a fullscreened grid.
@@ -1969,12 +2079,104 @@ class FrigateModernHassCard extends HTMLElement {
 
   // ── data ─────────────────────────────────────────────────
   _cc() { return this._camCache[this._activeCam?.entity] || mkCamState(); }
+  // A camera's colour on the grid view timeline: its own if the config gives
+  // one, otherwise the default for its place in the list.
+  _camColor(i) { return this._config.cameras[i]?.color || camSolid(i, this._config.cameras.length); }
+  // A tile's name label. With more than one camera it carries the camera's
+  // timeline colour, which ties tile, timeline and legend together on a phone,
+  // where nothing can be hovered to light a tile up.
+  // While a clip plays the label also says what it is. A narrow tile gets a
+  // shorter version, time first and without the camera name, which the dot and
+  // the tile itself already give; the CSS picks one by the tile's width.
+  _gridLabel(i, ev = null) {
+    const inner = this._labelInner(i, ev);
+    return inner ? `<div class="grid-label">${inner}</div>` : '';
+  }
+  // What a label shows, for a grid tile and the single view alike, so both
+  // name a camera and an event the same way.
+  _labelInner(i, ev = null) {
+    const c = this._config.cameras[i]; if (!c) return '';
+    const dot = this._config.cameras.length > 1 ? `<i class="cam-dot-lbl" style="background:${this._camColor(i)}"></i>` : '';
+    const name = cap(camDisplayName(c));
+    if (!ev) return `${dot}${name}`;
+    const what = cap(ev.label || ''), when = this._time(ev.start_time);
+    return `${dot}<span class="gl-full">${name} · ${when} · ${what}</span><span class="gl-short">${when} · ${what}</span>`;
+  }
+  // An event label says what started playing and then gets out of the way:
+  // it fades after a few seconds and does not come back, so it never sits over
+  // the video's own controls for long.
+  _fadeLabel(el) {
+    if (!el) return;
+    clearTimeout(el._fadeT); el.classList.remove('fade');
+    el._fadeT = setTimeout(() => el.classList.add('fade'), 3000);
+  }
+  // Light up the tiles of the cameras behind the event under the pointer.
+  _hlTiles(list) {
+    if (this._viewMode !== 'grid') return;
+    const want = new Set(String(list || '').split(',').filter(x => x !== '').map(Number));
+    this.shadowRoot.querySelectorAll('#cam-grid .grid-slot:not(.placeholder)').forEach((sl, i) => {
+      const on = want.has(i);
+      sl.classList.toggle('tick-hl', on);
+      if (on) sl.style.setProperty('--hl', this._camColor(i));
+    });
+  }
+  // Zoom the timeline onto a group of events so they come apart again.
+  // The window a group would zoom to: its events plus some room either side,
+  // never narrower than the 5 minutes the wheel stops at.
+  _zoomWindow(a, b) {
+    const pad = Math.max(60, (b - a) * 0.25);
+    let ns = Math.floor(a - pad), ne = Math.ceil(b + pad);
+    if (ne - ns < 300) { const mid = (ns + ne) / 2; ns = Math.floor(mid - 150); ne = ns + 300; }
+    return [ns, ne];
+  }
+  // A tap on a group zooms in on it, unless zooming cannot pull its events
+  // apart: they are seconds apart and the timeline is already about as close
+  // as it goes. Then a second tap would land on the same block again, so list
+  // them to pick from instead. Returns which it did, for the smoke test.
+  _openGroup(el) {
+    const a = Number(el.dataset.grpS), b = Number(el.dataset.grpE);
+    const [ns, ne] = this._zoomWindow(a, b);
+    if (ne - ns >= (this._winEnd - this._winStart) * 0.8) {
+      this._pickGroup((el.dataset.grpIds || '').split(',').filter(Boolean));
+      return 'pick';
+    }
+    this._pickGroup(null);
+    this._zoomTo(a, b);
+    return 'zoom';
+  }
+  _pickGroup(ids) {
+    const p = this.shadowRoot.querySelector('#grp-panel'); if (!p) return;
+    if (!ids || !ids.length) { p.hidden = true; p.innerHTML = ''; return; }
+    const all = this._eventsMode === 'all';
+    const evs = ids.map(id => this._allDisplayEvents().find(e => e.id === id)).filter(Boolean);
+    p.innerHTML = evs.map(ev => {
+      const ci = this._config.cameras.findIndex(c => this._camCache[c.entity]?.cam === ev.camera);
+      const col = all && ci >= 0 ? this._camColor(ci) : labelColor(ev.label);
+      const where = all && ci >= 0 ? ` · ${cap(camDisplayName(this._config.cameras[ci]))}` : '';
+      const when = this._time(ev.start_time, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return `<button class="chip" data-tick="${ev.id}"><i class="cam-dot-lbl" style="background:${col}"></i>${when} · ${cap(ev.label)}${where}</button>`;
+    }).join('') + `<button class="chip" data-grp-close>Close</button>`;
+    p.hidden = false;
+  }
+  _zoomTo(a, b) {
+    // Remembered so Back returns to exactly this window: zoom into one busy
+    // block, come back, zoom into the next.
+    (this._zoomStack = this._zoomStack || []).push([this._winStart, this._winEnd]);
+    let [ns, ne] = this._zoomWindow(a, b);
+    const now = Math.floor(Date.now() / 1000);
+    if (ne > now) { const d = ne - now; ne -= d; ns -= d; }
+    this._winStart = ns; this._winEnd = ne; this._exhausted = false;
+    this._renderTimeline(); this._renderRange();
+    clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350);
+  }
   _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
   _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
 
   async _loadWindow(replace) {
-    if (this._loading) return;
+    // A request that arrives mid-load is for a newer window: run it once this
+    // one is done instead of dropping it, or the lists stay on the old window.
+    if (this._loading) { this._loadAgain = true; return; }
     this._loading = true;
     const { clientId, cam } = this._cc(); if (!clientId||!cam) { this._loading=false; return; }
     const after=this._winStart, before=this._winEnd;
@@ -1990,6 +2192,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (ent&&this._camCache[ent]) { this._camCache[ent].events=this._events; this._camCache[ent].recordings=this._recordings; }
     if (this._tab==='reviews') await this._loadReviews();
     this._loading = false;
+    if (this._loadAgain) { this._loadAgain = false; return this._loadWindow(replace); }
     if (this._eventsMode==='all') this._loadAllCamsBackground();
     this._renderAll();
   }
@@ -2001,14 +2204,33 @@ class FrigateModernHassCard extends HTMLElement {
       const cc = this._camCache[c.entity];
       return c.entity !== this._activeCam?.entity && cc && cc.discovered;
     });
-    await Promise.all(others.map(async c => {
-      const cc = this._camCache[c.entity];
-      try {
-        const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
-        cc.events = Array.isArray(ev) ? ev : [];
-      } catch(_) {}
-    }));
-    if (this._eventsMode==='all') this._renderList();
+    // Recordings too, for every camera in this window. Only events were fetched
+    // here, so the grid's recordings list and recording band knew a camera's
+    // recordings only if it had been the active one earlier, and then for the
+    // window of that moment: after a reload only one camera was listed.
+    const all = this._config.cameras.filter(c => this._camCache[c.entity]?.discovered);
+    const recs = new Map();
+    await Promise.all([
+      ...others.map(async c => {
+        const cc = this._camCache[c.entity];
+        try {
+          const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
+          cc.events = Array.isArray(ev) ? ev : [];
+        } catch(_) {}
+      }),
+      ...all.map(async c => {
+        const cc = this._camCache[c.entity];
+        try {
+          const r = await this._ws({type:'frigate/recordings/get',instance_id:cc.clientId,camera:cc.cam,after,before});
+          recs.set(c.entity, Array.isArray(r) ? r : []);
+        } catch(_) {}
+      }),
+    ]);
+    // The window moved while this was loading: these answers are for another
+    // window, and the load for the new one is on its way.
+    if (after !== this._winStart || before !== this._winEnd) return;
+    for (const [ent, r] of recs) this._camCache[ent].recordings = r;
+    if (this._eventsMode==='all') { this._renderList(); this._renderTimeline(); }
   }
 
   async _loadKept() {
@@ -2067,18 +2289,22 @@ class FrigateModernHassCard extends HTMLElement {
                 <div id="engine"><div class="ph">${ICONS.live}<span>Connecting…</span></div></div>
                 <div class="viewer" id="viewer" style="display:none"></div>
 <div class="feed-top" id="feed-top" style="display:none">
-                  <button class="btn back" id="back">${ICONS.back}<span>Live</span></button>
+                  <button class="btn back ctl-live" id="back">${ICONS.back}<span>Live</span></button>
                 </div>
+<div class="grid-label" id="play-info" hidden></div>
               </div>
               <div id="cam-grid" style="display:none"></div>
             </div>
             <!-- timeline strip — always visible below the stream/grid -->
             <div class="tl-sec">
               <div class="tl-head">
-                <span class="section-label" id="tl-range">—</span>
+                <div class="tl-where">
+                  <button class="tool" id="zoom-back" title="Back to where you were before zooming in" hidden>${ICONS.back}</button>
+                  <span class="section-label" id="tl-range">—</span>
+                </div>
                 <div class="tl-tools">
                   <div class="stream-ctrl-bar" id="stream-ctrl-bar"></div>
-                  <button class="tool" id="now-btn" title="Jump to now">⟳</button>
+                  <button class="tool tool-txt" id="now-btn" title="Back to the last hours up to now">${ICONS.clock}<span>Now</span></button>
                   <button class="tool" id="filter-btn" title="Filter">${ICONS.filter}</button>
                   <button class="tool" id="cal-btn" title="Calendar">${ICONS.calendar}</button>
                 </div>
@@ -2086,6 +2312,7 @@ class FrigateModernHassCard extends HTMLElement {
               <div class="filter-panel" id="filter-panel" style="display:none"></div>
               <div class="cal-panel" id="cal-panel" style="display:none"></div>
               <div class="tl-track" id="tl-track" title="Drag · scroll=zoom · Shift+scroll=pan"><div class="tl-now"></div></div>
+              <div class="grp-panel" id="grp-panel" hidden></div>
               <div class="tl-labels" id="tl-labels"></div>
               <div class="legend" id="legend"></div>
             </div>
@@ -2192,6 +2419,8 @@ class FrigateModernHassCard extends HTMLElement {
       card.classList.toggle('mobile', mobile);
       this._applyBrowse();
       this._applyEventsCollapsed();
+      // Events are grouped by on-screen distance, which a new width changes.
+      this._renderTimeline();
       if (wide) this._syncColHeight();
       // Crossing a width where the automatic column count changes (rotating a
       // phone, resizing a window) needs the grid rebuilt: the number of
@@ -2246,6 +2475,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#filter-btn')) return this._toggleFilter();
     if (e.target.closest('#cal-btn')) return this._toggleCal();
     if (e.target.closest('#now-btn')) return this._goNow();
+    if (e.target.closest('#zoom-back')) return this._zoomBack();
     if (e.target.closest('#browse-toggle')) return this._toggleBrowse();
     if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
@@ -2264,12 +2494,22 @@ class FrigateModernHassCard extends HTMLElement {
     const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl,dl.dataset.dlFile); }
     const fav = e.target.closest('[data-fav]'); if (fav) { e.stopPropagation(); return this._toggleFav(fav.dataset.fav); }
     const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv=revMark.closest('[data-review-id]'); e.stopPropagation(); if(rv) return this._markReviewed(rv.dataset.reviewId); }
-    const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._showClipById(revOpen.dataset.reviewOpen);
+    const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._openReview(revOpen);
     const pill = e.target.closest('[data-tab]'); if (pill) return this._setTab(pill.dataset.tab);
-    const tick = e.target.closest('[data-tick]'); if (tick) return this._open(tick.dataset.tick);
+    // A tick opens its clip where the list would: in the camera's own tile in
+    // grid view. _open alone uses the single view player, which is hidden while
+    // the grid is showing, so in grid view a tick seemed to do nothing (#11).
+    const grp = e.target.closest('[data-grp-s]'); if (grp) return this._openGroup(grp);
+    if (e.target.closest('[data-grp-close]')) return this._pickGroup(null);
+    const tick = e.target.closest('[data-tick]');
+    if (tick) {
+      this._pickGroup(null);
+      return this._viewMode === 'grid' ? this._openInGridSlot(tick.dataset.tick) : this._open(tick.dataset.tick);
+    }
     // Stop seek-bar clicks from bubbling up to the recording row handler
     if (e.target.closest('.rec-seek-wrap')) return;
-    const recRow = e.target.closest('[data-rs]'); if (recRow) return this._toggleRecSeek(recRow);
+    const recRow = e.target.closest('[data-rs]');
+    if (recRow) return recRow.dataset.ci != null ? this._openRecInGridSlot(recRow) : this._toggleRecSeek(recRow);
     const restoreSlot = e.target.closest('[data-restore-slot]');
     if (restoreSlot) { e.stopPropagation(); this._restoreGridSlot(Number(restoreSlot.dataset.restoreSlot)); return; }
     // per-slot fullscreen (from innerHTML-created button in _openInGridSlot)
@@ -2318,7 +2558,7 @@ class FrigateModernHassCard extends HTMLElement {
     const cam = this._config.cameras[idx];
     if (!slot || !cam) { this._mountGrid(); return; }
     this._stopSlotPlayer(slot);
-    slot.innerHTML = `<div class="grid-label">${cap(camDisplayName(cam))}</div>`;
+    slot.innerHTML = this._gridLabel(idx);
     if (this._config.live_provider === 'go2rtc') {
       slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
       this._mountGridGo2rtc(slot, cam.entity);
@@ -2339,24 +2579,27 @@ class FrigateModernHassCard extends HTMLElement {
     if (!slot) { this._open(id); return; } // fallback to single view
 
     this._stopSlotPlayer(slot); // don't leave the tile's stream running headless
+    this._revealPlayer(slot);
     const isSnap = this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot);
-    const camName = cap((ev.camera||'').replace(/_/g,' '));
+    // The tile says what is playing, as the single view does beside Live.
+    const label = this._gridLabel(camIdx < 0 ? 0 : camIdx, ev);
     if (isSnap) {
       const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
       slot.innerHTML = `
         <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
-        <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>
+        ${label}
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>
         <button class="grid-fs-btn" data-slot-fs title="Fullscreen">${ICONS.expand}</button>`;
     } else {
       const url = await this._resolveClipUrl(ev.id);
       slot.innerHTML = `
         <video src="${url}" controls playsinline
           style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
-        <div class="grid-label">${camName}</div>
-        <button class="grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">✕</button>`;
+        ${label}
+        <button class="btn back grid-close-btn" data-restore-slot="${camIdx}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
       this._playMedia(slot.querySelector('video'));
     }
+    this._fadeLabel(slot.querySelector('.grid-label'));
   }
 
   _open(id) {
@@ -2364,14 +2607,41 @@ class FrigateModernHassCard extends HTMLElement {
     if(!ev) return;
     if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
+    this._playInfo(ev);
   }
   _enter() {
     this.shadowRoot.querySelector('#engine').style.display='none';
     const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
     this.shadowRoot.querySelector('#feed-top').style.display='flex';
+    this._playInfo(null);
+    this._revealPlayer(this.shadowRoot.querySelector('#eng-wrap'));
+  }
+  // What is playing, beside the Live button. On a phone a tap on the timeline
+  // plays straight away and there is no tooltip to have read first, so this is
+  // where you find out what the tick was.
+  _playInfo(ev) {
+    const el = this.shadowRoot.querySelector('#play-info'); if (!el) return;
+    const inner = ev ? this._labelInner(this._activeCamIdx, ev) : '';
+    el.innerHTML = inner; el.hidden = !inner;
+    if (inner) this._fadeLabel(el);
+  }
+  // On a phone the player sits above the list, so picking a clip far down the
+  // list started it off screen and left you looking at the list. Scroll back up
+  // to it, but only when its top is actually out of view: on a wide card the
+  // list sits beside the player, and jumping the page on every click there would
+  // be worse than the bug.
+  _revealPlayer(el) {
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const top = el.getBoundingClientRect().top;
+      if (top >= 0 && top <= window.innerHeight - 80) return;
+      // Clear Home Assistant's fixed header rather than sliding under it.
+      el.style.scrollMarginTop = '72px';
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
   _showLive() {
-    this._playing=null;
+    this._playing=null; this._playInfo(null);
     const v=this.shadowRoot.querySelector('#viewer'); v.innerHTML=''; v.style.display='none';
     this.shadowRoot.querySelector('#engine').style.display='block';
     this.shadowRoot.querySelector('#feed-top').style.display='none';
@@ -2439,6 +2709,29 @@ class FrigateModernHassCard extends HTMLElement {
     viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
+  // A review item is one arrival, often several tracked objects long. Play the
+  // whole period from the recordings rather than the clip of one object inside
+  // it, which started wherever that object happened to appear. If the period
+  // cannot be played, for example on a setup that keeps no continuous recording,
+  // fall back to the clip of the earliest object, which is the old behaviour
+  // minus the wrong starting point.
+  _openReview(row) {
+    const start = Math.floor(Number(row.dataset.rvS));
+    const endRaw = Number(row.dataset.rvE);
+    // An ongoing review has no end yet: play up to now.
+    const end = Math.ceil(endRaw > 0 ? endRaw : Date.now() / 1000);
+    const det = row.dataset.reviewOpen;
+    const fallback = () => {
+      if (det) return this._showClipById(det);
+      const viewer = this.shadowRoot.querySelector('#viewer');
+      if (viewer) viewer.innerHTML = '<div class="ld">No recording for this period</div>';
+    };
+    if (!(start > 0) || end <= start) return fallback();
+    const shown = this._showRecording(start, end, null, { fallback });
+    const title = row.querySelector('.rev-t')?.textContent || '';
+    this._playInfo({ label: title, start_time: start });
+    return shown;
+  }
   async _showClipById(id) {
     if(!id) return;
     const token = ++this._playSeq;
@@ -2459,7 +2752,7 @@ class FrigateModernHassCard extends HTMLElement {
     const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
     return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${m}:${String(ss).padStart(2,'0')}`;
   }
-  async _showRecording(s, e, seekFrom) {
+  async _showRecording(s, e, seekFrom, opts = {}) {
     const start = seekFrom || s;
     const token = ++this._playSeq; // cancel any in-flight load
     this._enter(); this._playing={rec:s};
@@ -2469,7 +2762,8 @@ class FrigateModernHassCard extends HTMLElement {
     const maxChunk = 7200;
     const chunkEnd = Math.min(e, start + maxChunk);
     const clipDur = chunkEnd - start; // real clip length in seconds
-    const url=await this._signed(`/api/frigate/${clientId}/recording/${cam}/start/${start}/end/${chunkEnd}`);
+    // _recUrl picks MP4 or, on Safari, HLS.
+    const url=await this._recUrl(clientId, cam, start, chunkEnd);
     if (this._playSeq !== token) return;
     const fromLbl = seekFrom
       ? `<div class="seek-from-lbl">▶ Playing from ${this._time(seekFrom)}</div>`
@@ -2490,6 +2784,19 @@ class FrigateModernHassCard extends HTMLElement {
         </div>
       </div>`;
     const vid     = viewer.querySelector('video');
+    // Caller-supplied way out when the recording does not play at all. Only
+    // before the first frame: a stream that started and then stalled is a
+    // different problem, and swapping it for a clip would hide it.
+    if (vid && opts.fallback) {
+      let started = false;
+      const bail = () => {
+        if (started || this._playSeq !== token) return;
+        started = true; clearTimeout(guard); opts.fallback();
+      };
+      const guard = setTimeout(bail, 10000);
+      vid.addEventListener('loadeddata', () => { started = true; clearTimeout(guard); }, { once: true });
+      vid.addEventListener('error', bail, { once: true });
+    }
     const ppBtn   = viewer.querySelector('.rec-pp-btn');
     const muteBtn = viewer.querySelector('.rec-mute-btn');
     const ctTime  = viewer.querySelector('.rec-ctl-time');
@@ -2541,6 +2848,38 @@ class FrigateModernHassCard extends HTMLElement {
     });
   }
   // Toggle seek bar for a recording row
+  // Frigate's dynamic recording/start/.../end/... endpoint concatenates
+  // segments on the fly and never supports Range requests (chunked transfer, no
+  // Accept-Ranges/206 at any layer), and Safari's <video> refuses to play a
+  // progressive MP4 without Range support. Safari gets the HLS time-range
+  // playlist instead, the same fix _resolveClipUrl uses for event clips; other
+  // browsers keep the MP4 path.
+  _recUrl(clientId, cam, start, end) {
+    const path = this._hlsNative()
+      ? `vod/${cam}/start/${start}/end/${end}/index.m3u8`
+      : `recording/${cam}/start/${start}/end/${end}`;
+    return this._signed(`/api/frigate/${clientId}/${path}`);
+  }
+  // A recording picked in grid view plays in its camera's tile, as a clip does.
+  // It used to start in the single view player, hidden behind the grid. The
+  // video's own controls seek; downloading stays in the single view.
+  async _openRecInGridSlot(row) {
+    const rs = +row.dataset.rs, re = +row.dataset.re, ci = +row.dataset.ci;
+    const cam = this._config.cameras[ci], cc = cam && this._camCache[cam.entity];
+    const slot = this.shadowRoot.querySelectorAll('#cam-grid .grid-slot:not(.placeholder)')[ci];
+    if (!slot || !cc) return;
+    this._stopSlotPlayer(slot);
+    this._revealPlayer(slot);
+    // Same two hour cap as the single view: Frigate builds the file on request.
+    const url = await this._recUrl(cc.clientId, cc.cam, rs, Math.min(re, rs + 7200));
+    slot.innerHTML = `
+        <video src="${url}" controls playsinline
+          style="width:100%;height:100%;object-fit:contain;background:#000;display:block"></video>
+        ${this._gridLabel(ci, { label: 'Recording', start_time: rs })}
+        <button class="btn back grid-close-btn" data-restore-slot="${ci}" title="Back to live">${ICONS.back}<span>Live</span></button>`;
+    this._playMedia(slot.querySelector('video'));
+    this._fadeLabel(slot.querySelector('.grid-label'));
+  }
   _toggleRecSeek(row) {
     // Capture rs/re directly from this specific row's dataset — no shared state
     const rs = +row.dataset.rs;
@@ -2556,7 +2895,7 @@ class FrigateModernHassCard extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'rec-seek-wrap';
     // Helper: offset seconds → absolute wall-clock label
-    const toTime = v => new Date((rs + v) * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const toTime = v => this._time(rs + v, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
     wrap.innerHTML = `<div class="rec-seek-row">
       <input type="range" class="rec-seek-bar" min="0" max="${d}" value="0" step="1">
       <span class="rec-seek-lbl">▶ ${this._time(rs)}</span>
@@ -2616,7 +2955,7 @@ class FrigateModernHassCard extends HTMLElement {
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
     if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
   }
-  _goNow() { const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
+  _goNow() { this._zoomStack=[]; this._pickGroup(null); const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
   _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
   // ── favorites (realtime) ──────────────────────────────────
@@ -2688,7 +3027,7 @@ class FrigateModernHassCard extends HTMLElement {
       const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       cells+=`<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds)?'<i class="cdot"></i>':''}</button>`;
     }
-    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString([],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
+    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
       <div class="cal-dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="cal-grid">${cells}</div>`;
   }
@@ -2707,6 +3046,12 @@ class FrigateModernHassCard extends HTMLElement {
   _wireScrub() {
     const track=this.shadowRoot.querySelector('#tl-track'); if(!track) return;
     let drag=false,sx=0,sws=0,swe=0;
+    // Pointing at an event lights up its camera's tile straight away, without
+    // waiting for the browser's tooltip.
+    // Only for a real mouse: on a phone a tap also fires mouseover, but nothing
+    // ever un-hovers, so the tile stayed framed.
+    track.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return;const t=e.target.closest('[data-cis]');this._hlTiles(t?t.dataset.cis:'');});
+    track.addEventListener('pointerleave',()=>this._hlTiles(''));
     const dn=x=>{drag=true;sx=x;sws=this._winStart;swe=this._winEnd;track.classList.add('grab');};
     const mv=x=>{if(!drag)return;const w=track.clientWidth||1;const sp=swe-sws;const sh=Math.round((x-sx)/w*sp);let ns=sws-sh,ne=swe-sh;const now=Math.floor(Date.now()/1000);if(ne>now){const a=ne-now;ne-=a;ns-=a;}this._winStart=ns;this._winEnd=ne;this._renderTimeline();this._renderRange();};
     const up=()=>{if(!drag)return;drag=false;track.classList.remove('grab');this._loadWindow(true);};
@@ -2793,21 +3138,33 @@ class FrigateModernHassCard extends HTMLElement {
 
   _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
   _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
+  _zoomBack() {
+    this._pickGroup(null);
+    const prev = (this._zoomStack || []).pop(); if (!prev) return;
+    [this._winStart, this._winEnd] = prev; this._exhausted = false;
+    this._renderTimeline(); this._renderRange();
+    clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350);
+  }
   _renderRange() {
+    const back=this.shadowRoot.querySelector('#zoom-back');
+    if (back) back.hidden = !(this._zoomStack && this._zoomStack.length);
     const el=this._$('#tl-range'); if(!el) return;
-    const span=this._winEnd-this._winStart; const fmt=t=>new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    if(span<=DAY+60) el.textContent=`${new Date(this._winEnd*1000).toLocaleDateString([],{day:'2-digit',month:'short'})} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
-    else el.textContent=`${new Date(this._winStart*1000).toLocaleDateString([],{day:'2-digit',month:'short'})} – ${this._isNowWindow()?'now':new Date(this._winEnd*1000).toLocaleDateString([],{day:'2-digit',month:'short'})}`;
+    const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
+    if(span<=DAY+60) el.textContent=`${this._day(this._winEnd)} · ${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
+    else el.textContent=`${this._day(this._winStart)} – ${this._isNowWindow()?'now':this._day(this._winEnd)}`;
   }
   _renderLegend() {
     const el=this._$('#legend'); if(!el) return;
     const labels=this._labels();
-    let html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
+    // The legend explains the colours actually on the timeline: cameras in grid
+    // view, object labels on a single camera.
+    let html;
     if (this._eventsMode==='all') {
-      this._config.cameras.forEach((c,i)=>{ html+=`<span class="lg"><i style="background:${CAM_COLORS[i%CAM_COLORS.length].replace('.5','1').replace('rgba','rgb').replace(',1)',')')}"></i>${cap(camDisplayName(c))} rec</span>`; });
+      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
-      html+=`<span class="lg"><i style="background:${CAM_COLORS[0].replace('.5','1').replace('rgba','rgb').replace(',1)',')')}"></i>Rec</span>`;
+      html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
+    html+=`<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
     el.innerHTML=html;
   }
 
@@ -2821,7 +3178,29 @@ class FrigateModernHassCard extends HTMLElement {
       <div class="latest-body">${this._eventCardHTML(events[0],false,true)}</div>`;
   }
 
-  _time(ts) { return new Date(ts*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+  // Locale and clock for every time and date the card shows. Follows the user's
+  // Home Assistant profile, which has its own 12/24 hour setting and language,
+  // rather than the browser's, unless the card config says otherwise. hourCycle
+  // h23 rather than hour12:false, which some browsers render as 24:05 at
+  // midnight.
+  _timeFmt(opts = {}) {
+    const loc = this._hass?.locale || {};
+    const pick = this._config?.time_format;
+    const o = { ...opts };
+    const want = pick === '12h' ? '12' : pick === '24h' ? '24' : loc.time_format;
+    if (want === '12') o.hour12 = true;
+    else if (want === '24') o.hourCycle = 'h23';
+    // 'system' means the browser's own conventions, 'language' Home Assistant's.
+    const lang = loc.time_format === 'system' ? undefined : (loc.language || undefined);
+    return [lang, o];
+  }
+  _time(ts, opts = { hour: '2-digit', minute: '2-digit' }) {
+    const [lang, o] = this._timeFmt(opts);
+    return new Date(ts * 1000).toLocaleTimeString(lang, o);
+  }
+  _day(ts, opts = { day: '2-digit', month: 'short' }) {
+    return new Date(ts * 1000).toLocaleDateString(this._timeFmt()[0], opts);
+  }
   _dur(ev) { return Math.max(1,Math.round((ev.end_time||Date.now()/1000)-ev.start_time)); }
   _zones() { const z=new Set(); this._allDisplayEvents().forEach(e=>(e.zones||[]).forEach(x=>z.add(x))); return [...z]; }
   _labels() { const l=new Set(); this._allDisplayEvents().forEach(e=>e.label&&l.add(e.label)); return [...l]; }
@@ -2846,16 +3225,56 @@ class FrigateModernHassCard extends HTMLElement {
     const s=this._winStart,e=this._winEnd,span=Math.max(1,e-s); let html='';
 
     if (this._eventsMode==='all') {
-      // Per-camera coloured recording bars
-      this._config.cameras.forEach((c,ci)=>{
-        const cc=this._camCache[c.entity]; if(!cc) return;
-        const col=CAM_COLORS[ci%CAM_COLORS.length];
-        for(const r of this._mergeRecs(cc.recordings||[])){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${col}"></div>`;}
-      });
+      // One band for "something was recording here". Per camera bands at full
+      // height lay on top of each other and the last camera hid the rest, so the
+      // legend promised colours nobody could see. Telling cameras apart is the
+      // ticks' job in this view.
+      const all=[];
+      this._config.cameras.forEach(c=>{ const cc=this._camCache[c.entity]; if(cc) all.push(...(cc.recordings||[])); });
+      // Neutral, so it cannot be mistaken for the first camera's colour.
+      for(const r of this._mergeRecs(all)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
     } else {
-      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%"></div>`;}
+      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
     }
-    for(const ev of this._allDisplayEvents()){if(ev.start_time<s||ev.start_time>e)continue;const left=(ev.start_time-s)/span*100;html+=`<div class="t-ev" data-tick="${ev.id}" style="left:${left}%;background:${labelColor(ev.label)}" title="${cap(ev.label)} ${this._time(ev.start_time)}"></div>`;}
+    // With every camera on one timeline a tick is coloured by camera, so you can
+    // see where something happened; what it was is in the tooltip. On a single
+    // camera the camera is already known and the colour shows what was seen.
+    const all = this._eventsMode === 'all';
+    const camIdx = ev => this._config.cameras.findIndex(c => this._camCache[c.entity]?.cam === ev.camera);
+    // Events closer together than a finger can tell apart become one block with
+    // a count, which zooms in when tapped. Measured in pixels, so zooming in
+    // separates them again by itself.
+    const px = track.clientWidth || 1000;
+    const near = this.shadowRoot.querySelector('.card')?.classList.contains('mobile') ? 14 : 9;
+    const evs = this._allDisplayEvents().filter(ev => ev.start_time >= s && ev.start_time <= e)
+      .sort((a, b) => a.start_time - b.start_time);
+    const groups = [];
+    for (const ev of evs) {
+      const x = (ev.start_time - s) / span * px;
+      const g = groups[groups.length - 1];
+      if (g && x - g.lastX < near) { g.evs.push(ev); g.lastX = x; } else groups.push({ evs: [ev], lastX: x });
+    }
+    for (const g of groups) {
+      const cis = all ? [...new Set(g.evs.map(camIdx).filter(i => i >= 0))] : [];
+      const hl = cis.length ? ` data-cis="${cis.join(',')}"` : '';
+      if (g.evs.length === 1) {
+        const ev = g.evs[0], ci = cis.length ? cis[0] : -1;
+        const left = (ev.start_time - s) / span * 100;
+        const col = ci >= 0 ? this._camColor(ci) : labelColor(ev.label);
+        const where = all ? ` · ${cap(ci >= 0 ? camDisplayName(this._config.cameras[ci]) : (ev.camera || '').replace(/_/g, ' '))}` : '';
+        html += `<div class="t-ev" data-tick="${ev.id}"${hl} style="left:${left}%;background:${col}" title="${cap(ev.label)} ${this._time(ev.start_time)}${where}"></div>`;
+        continue;
+      }
+      const a = g.evs[0].start_time, b = g.evs[g.evs.length - 1].start_time;
+      const mid = ((a + b) / 2 - s) / span * 100;
+      // One colour only when it means one thing: one camera in grid view, one
+      // kind of object on a single camera. Otherwise neutral.
+      const labels = new Set(g.evs.map(ev => ev.label));
+      const col = all ? (cis.length === 1 ? this._camColor(cis[0]) : REC_GROUP)
+                      : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
+      const names = all ? ' · ' + cis.map(i => cap(camDisplayName(this._config.cameras[i]))).join(', ') : '';
+      html += `<div class="t-grp" data-grp-s="${a}" data-grp-e="${b}" data-grp-ids="${g.evs.map(ev => ev.id).join(',')}"${hl} style="left:${mid}%;background:${col}" title="${g.evs.length} events ${this._time(a)}–${this._time(b)}${names}">${g.evs.length}</div>`;
+    }
     const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
     html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;
     track.innerHTML=html;
@@ -2904,17 +3323,24 @@ class FrigateModernHassCard extends HTMLElement {
     list.innerHTML=events.map(ev=>this._eventCardHTML(ev,false)).join('')+(this._exhausted?'<div class="end">— end —</div>':'<div class="more">scroll for older…</div>');
   }
   _renderRecordings(list) {
-    const recs=this._mergeRecs(this._recordings).sort((a,b)=>b.start_time-a.start_time);
+    // In grid view the list covers every camera, each row naming its camera.
+    // It used to show only whichever camera happened to be active, unnamed.
+    const all=this._eventsMode==='all';
+    let recs=[];
+    if (all) this._config.cameras.forEach((c,ci)=>{ const cc=this._camCache[c.entity]; if(cc) for(const r of this._mergeRecs(cc.recordings||[])) recs.push({...r,ci}); });
+    else recs=this._mergeRecs(this._recordings);
+    recs.sort((a,b)=>b.start_time-a.start_time);
     if(!recs.length){list.innerHTML='<div class="empty">No recordings in this window</div>';return;}
     list.innerHTML=recs.map(r=>{
       const rs=Math.floor(r.start_time), re=Math.floor(r.end_time||Date.now()/1000);
       const d=Math.max(1,re-rs); const mm=Math.floor(d/60),ss=d%60;
       const dur=`${mm?mm+'m ':''}${ss}s`;
-      const seekHint = d > 300 ? ' <span class="seek-hint">· click to seek</span>' : '';
-      return `<div class="rec" data-rs="${rs}" data-re="${re}">
+      const seekHint = d > 300 && !all ? ' <span class="seek-hint">· click to seek</span>' : '';
+      const cam = all ? `<i class="cam-dot-lbl" style="background:${this._camColor(r.ci)}"></i>${cap(camDisplayName(this._config.cameras[r.ci]))} · ` : '';
+      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all?` data-ci="${r.ci}"`:''}>
         <div class="ric">${ICONS.recordings}</div>
         <div class="rinf">
-          <div class="rt">${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
+          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
           <div class="rsub">${dur}${r.events?' · '+r.events+' ev':''}${seekHint}</div>
         </div>
         <div class="rp">▶</div>
@@ -2933,10 +3359,14 @@ class FrigateModernHassCard extends HTMLElement {
       const sev=r.severity==='alert'?'alert':'detection';
       const objs=(r.data?.objects||[]).map(cap).join(', ');
       const title=r.data?.metadata?.title||objs||cap(r.severity);
-      const firstDet=(r.data?.detections&&r.data.detections[0])||'';
+      // Frigate does not return detections in time order, so [0] was usually an
+      // object from halfway through the period. Event ids start with their epoch,
+      // which parseFloat reads, so sorting on that gives the earliest.
+      const dets=[...(r.data?.detections||[])].sort((a,b)=>parseFloat(a)-parseFloat(b));
+      const firstDet=dets[0]||'';
       const reviewed=r.has_been_reviewed;
       const thumb=firstDet?`<div class="rev-th"><img src="${this._media(firstDet,'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`:'';
-      return`<div class="rev ${sev}" data-review-id="${r.id}" ${firstDet?`data-review-open="${firstDet}"`:''}><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':firstDet?' · tap':''}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
+      return`<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time||''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':' · tap'}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
     }).join('');
   }
 
@@ -3008,7 +3438,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
         </select>`}
-        ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+        ${cams.length > 1 ? `
+        <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
+        ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
+        <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
     const hiddenTabs = new Set(this._config?.hidden_tabs || []);
@@ -3041,6 +3474,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .ce,.cn{flex:1;padding:7px;min-width:0;}
       .tf{width:100%;padding:7px;}
       .cs{padding:7px 4px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
+      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
       .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
         color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
@@ -3096,6 +3531,13 @@ class FrigateModernHassCardEditor extends HTMLElement {
         <div class="radio-row">
           <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
           <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
+        </div>
+        <div style="margin-top:8px">
+          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
+          <div class="radio-row">
+            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
+            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
+          </div>
         </div>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
@@ -3197,7 +3639,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
       <div class="section">
         <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
+        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
       </div>
 
     </div>`;
@@ -3217,6 +3659,12 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // sends whatever stood here back to the tile it came from. Without this you
     // would end up with the same camera twice and no way to place it. Runs
     // before the generic change handler so it can take over the update.
+    this.querySelectorAll('[data-reset-color]').forEach(b => b.addEventListener('click', () => {
+      const i = Number(b.dataset.resetColor);
+      const inp = this.querySelector(`[data-cam-color="${i}"]`);
+      if (inp) inp.value = camSolid(i, this.querySelectorAll('[data-row]').length);
+      this._u();
+    }));
     this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
       const i = Number(ev.currentTarget.dataset.camEntity);
       const picked = ev.currentTarget.value;
@@ -3227,8 +3675,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
       ev.stopImmediatePropagation();
       const cur = this._getCams(); // keeps the sizes, which belong to the tile
       const nameOf = k => before[k]?.name || '';
-      cur[i] = { ...cur[i], entity: picked, name: nameOf(j) };
-      cur[j] = { ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) };
+      // Name and colour belong to the camera, so they move with it; the size
+      // belongs to the tile and stays.
+      const withColor = (o, k) => { const x = { ...o }; delete x.color; if (isHex(before[k]?.color)) x.color = before[k].color; return x; };
+      cur[i] = withColor({ ...cur[i], entity: picked, name: nameOf(j) }, j);
+      cur[j] = withColor({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
@@ -3251,7 +3702,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
     if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
+    const own = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 0;
+    const min = own || (width < 500 ? 100 : 200); // same floors as the card
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols
@@ -3282,13 +3734,18 @@ class FrigateModernHassCardEditor extends HTMLElement {
 
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
-    return rows.map(r => {
+    return rows.map((r, idx) => {
       const span = Number(r.querySelector('[data-cam-span]')?.value || 1);
+      // Only a colour someone picked goes into the YAML. The swatch always shows
+      // one, so compare it with the default for this place in the list.
+      const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
+      const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
+        ...(color ? { color } : {}),
       };
     });
   }
@@ -3301,7 +3758,9 @@ class FrigateModernHassCardEditor extends HTMLElement {
     const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
     if(t) c.title=t; else delete c.title;
     if(s) c.subtitle=s; else delete c.subtitle;
-    if(w) c.window_hours=Number(w);
+    // Only a deliberate choice goes into the YAML. Writing the default along with
+    // every save froze each editor-made card at the old default of 24 hours.
+    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
     c.rotate_seconds = Number(r)||0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked
@@ -3313,6 +3772,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // default view
     const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
     c.default_view = dv;
+    const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
+    if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
     // hidden tabs

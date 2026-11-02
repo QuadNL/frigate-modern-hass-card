@@ -72,14 +72,15 @@ default_view: single     # or 'grid'
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `camera_entity` | string | none | Single camera entity (shorthand) |
-| `cameras` | list | none | List of `{entity, name, span}` objects. `span` makes a camera occupy several tiles |
+| `cameras` | list | none | List of `{entity, name, span, color}` objects. `span` makes a camera occupy several tiles, `color` (hex, e.g. `'#e6a700'`) sets its colour on the grid view timeline |
 | `title` | string | none | Card title |
 | `subtitle` | string | none | Card subtitle |
 | `default_view` | string | `single` | `single` or `grid` |
 | `theme` | string | `dark` | `dark`, `light`, `auto` |
+| `time_format` | string | `auto` | `auto` follows the 12/24 hour setting in your Home Assistant profile; `12h` or `24h` to override |
 | `accent_color` | string | none | Custom accent colour (hex) |
 | `bg_color` | string | none | Custom background colour (hex) |
-| `window_hours` | number | `24` | History window in hours |
+| `window_hours` | number | `6` | Hours the timeline shows when the card opens. Zoom and drag to see more |
 | `rotate_on_load` | boolean | `false` | Auto-rotate cameras on load |
 | `rotate_seconds` | number | `30` | Rotation interval in seconds |
 | `stream_height` | number | none | Max stream height in vh |

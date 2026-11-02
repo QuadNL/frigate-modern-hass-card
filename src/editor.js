@@ -1,5 +1,5 @@
 // editor.js — FrigateModernHassCardEditor config panel
-import { DEFAULT_ROTATE_S, GRID_LAYOUTS, findLayout } from './constants.js';
+import { DEFAULT_ROTATE_S, GRID_LAYOUTS, findLayout, camSolid, isHex } from './constants.js';
 
 export class FrigateModernHassCardEditor extends HTMLElement {
   setConfig(c) { this._config=c; this._render(); }
@@ -55,7 +55,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
           ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
         </select>`}
-        ${cams.length > 1 ? `<button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+        ${cams.length > 1 ? `
+        <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
+        ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
+        <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
       </div>`).join('');
 
     const hiddenTabs = new Set(this._config?.hidden_tabs || []);
@@ -88,6 +91,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .ce,.cn{flex:1;padding:7px;min-width:0;}
       .tf{width:100%;padding:7px;}
       .cs{padding:7px 4px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
+      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
       .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
         color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
@@ -143,6 +148,13 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <div class="radio-row">
           <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
           <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
+        </div>
+        <div style="margin-top:8px">
+          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
+          <div class="radio-row">
+            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
+            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
+          </div>
         </div>
         <div style="margin-top:8px">
           <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
@@ -244,7 +256,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
 
       <div class="section">
         <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||24}" min="1" max="720">
+        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
       </div>
 
 
@@ -265,6 +277,12 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     // sends whatever stood here back to the tile it came from. Without this you
     // would end up with the same camera twice and no way to place it. Runs
     // before the generic change handler so it can take over the update.
+    this.querySelectorAll('[data-reset-color]').forEach(b => b.addEventListener('click', () => {
+      const i = Number(b.dataset.resetColor);
+      const inp = this.querySelector(`[data-cam-color="${i}"]`);
+      if (inp) inp.value = camSolid(i, this.querySelectorAll('[data-row]').length);
+      this._u();
+    }));
     this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
       const i = Number(ev.currentTarget.dataset.camEntity);
       const picked = ev.currentTarget.value;
@@ -275,8 +293,11 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       ev.stopImmediatePropagation();
       const cur = this._getCams(); // keeps the sizes, which belong to the tile
       const nameOf = k => before[k]?.name || '';
-      cur[i] = { ...cur[i], entity: picked, name: nameOf(j) };
-      cur[j] = { ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) };
+      // Name and colour belong to the camera, so they move with it; the size
+      // belongs to the tile and stays.
+      const withColor = (o, k) => { const x = { ...o }; delete x.color; if (isHex(before[k]?.color)) x.color = before[k].color; return x; };
+      cur[i] = withColor({ ...cur[i], entity: picked, name: nameOf(j) }, j);
+      cur[j] = withColor({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
@@ -299,7 +320,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
   // same sum; showing it beats making someone resize a phone to find out.
   _colsAt(width, camCount) {
     if (this._config?.stack_on_mobile !== false && width < 500) return '1 camera';
-    const min = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 200;
+    const own = Number(this._config?.min_tile_width) > 0 ? Number(this._config.min_tile_width) : 0;
+    const min = own || (width < 500 ? 100 : 200); // same floors as the card
     const layout = findLayout(this._config?.grid_layout || 'auto');
     const pinned = Number(this._config?.grid_columns);
     let cols = layout && layout.cols ? layout.cols
@@ -330,13 +352,18 @@ export class FrigateModernHassCardEditor extends HTMLElement {
 
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
-    return rows.map(r => {
+    return rows.map((r, idx) => {
       const span = Number(r.querySelector('[data-cam-span]')?.value || 1);
+      // Only a colour someone picked goes into the YAML. The swatch always shows
+      // one, so compare it with the default for this place in the list.
+      const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
+      const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
+        ...(color ? { color } : {}),
       };
     });
   }
@@ -349,7 +376,9 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
     if(t) c.title=t; else delete c.title;
     if(s) c.subtitle=s; else delete c.subtitle;
-    if(w) c.window_hours=Number(w);
+    // Only a deliberate choice goes into the YAML. Writing the default along with
+    // every save froze each editor-made card at the old default of 24 hours.
+    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
     c.rotate_seconds = Number(r)||0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked
@@ -361,6 +390,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     // default view
     const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
     c.default_view = dv;
+    const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
+    if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
     c.rotate_on_load = this.querySelector('#rotate_on_load')?.checked === true;
     // hidden tabs

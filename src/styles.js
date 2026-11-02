@@ -2,6 +2,9 @@
 // ── styles ───────────────────────────────────────────────────
 export const STYLES = `
   :host{display:block;}
+  /* The hidden attribute loses to any class that sets display, which kept the
+     timeline's Back button on screen with nothing to go back to. */
+  [hidden]{display:none !important;}
   .card{position:relative;background:var(--c-bg);color:var(--c-text);overflow:hidden;border-radius:var(--ha-card-border-radius,18px);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);}
 
@@ -98,12 +101,33 @@ export const STYLES = `
      later tiles backfill the gaps instead of the grid keeping empty squares. */
   .cam-grid{display:grid;width:100%;grid-template-columns:repeat(var(--grid-cols,2),1fr);grid-auto-flow:dense;grid-auto-rows:1fr;}
   .grid-slot{position:relative;aspect-ratio:16/9;background:var(--c-bg-deep);overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
-  .grid-slot:hover{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
+  /* The hover frame is drawn on top of the stream. As an inset shadow on the
+     tile itself it sat under the video, so it only showed in the black bars
+     beside a 16:9 picture and not at all when the picture filled the tile. */
+  .grid-slot::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:4;box-shadow:inset 0 0 0 2px transparent;transition:box-shadow .15s;}
+  .grid-slot:hover::after{box-shadow:inset 0 0 0 2px rgba(59,130,246,.5);}
+  /* Lit from the timeline: the tile of the camera whose event is pointed at. */
+  .grid-slot.tick-hl::after{box-shadow:inset 0 0 0 3px var(--hl,#3b82f6);}
   .grid-slot.placeholder{background:#06090f;cursor:default;}
-  .grid-slot.placeholder:hover{box-shadow:none;}
+  .grid-slot.placeholder:hover::after{box-shadow:none;}
   .grid-slot ha-camera-stream,.grid-slot frigate-go2rtc-player{width:100%;height:100%;display:block;}
-  .grid-close-btn{position:absolute;top:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:50%;font-size:11px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;line-height:1;}
-  .grid-close-btn:hover{background:rgba(239,68,68,.7);}
+  /* One Live button for a grid tile and the single view, so the two look like
+     the same thing. In a tile it replaced a round cross, which read as "close
+     this camera" rather than "back to live". */
+  .ctl-live,.grid-close-btn{padding:4px 8px;font-size:11px;gap:4px;}
+  .ctl-live svg,.grid-close-btn svg{width:12px;height:12px;}
+  .grid-close-btn{position:absolute;top:6px;left:6px;z-index:10;}
+  /* A tile is its own size container, so its controls can shrink with it: on
+     a phone a tile is a few centimetres wide and full labels covered half the
+     picture. */
+  .grid-slot{container-type:inline-size;}
+  .gl-short{display:none;}
+  @container (max-width: 260px) {
+    .grid-close-btn span{display:none;}
+    .grid-close-btn{padding:4px 6px;}
+    .gl-full{display:none;}
+    .gl-short{display:inline;}
+  }
   /* per-slot fullscreen button — appears on hover, bottom-right */
   .grid-fs-btn{position:absolute;bottom:6px;right:6px;width:22px;height:22px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;}
   .grid-slot:hover .grid-fs-btn{opacity:1;}
@@ -120,7 +144,10 @@ export const STYLES = `
   .cam-grid:-webkit-full-screen{width:100vw;height:100vh;max-height:none!important;background:#000;animation:fsIn .25s cubic-bezier(.22,.8,.22,1);}
   .cam-grid:fullscreen .grid-slot,.cam-grid:-webkit-full-screen .grid-slot{aspect-ratio:unset;border-radius:0;}
   .cam-grid:fullscreen.multi-row,.cam-grid:-webkit-full-screen.multi-row{grid-template-rows:repeat(var(--grid-rows,2),1fr);}
-  .grid-label{position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
+  .cam-dot-lbl{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;position:relative;top:-1px;}
+  .grid-label.fade{opacity:0;}
+  #play-info{z-index:6;}
+  .grid-label{transition:opacity .6s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 12px);box-sizing:border-box;position:absolute;bottom:4px;left:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 2px rgba(0,0,0,.8);background:rgba(0,0,0,.45);padding:1px 7px;border-radius:10px;pointer-events:none;z-index:2;}
   /* More than one row: cap the height so the whole grid fits the viewport and
      let the tiles share it, rather than each keeping its 16:9 box. */
   .card.grid-mode .cam-grid.multi-row:not(.stacked) { max-height:var(--stream-h,70vh); grid-template-rows:repeat(var(--grid-rows,2),1fr); }
@@ -182,7 +209,8 @@ export const STYLES = `
 
   /* ── timeline ── */
   .tl-sec{padding:8px 13px;border-bottom:1px solid var(--c-border);}
-  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+  .tl-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;flex-wrap:wrap;gap:6px;}
+  .tl-where{display:flex;align-items:center;gap:8px;min-width:0;}
   .tl-tools{display:flex;gap:4px;}
   .tool{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:7px;padding:4px 7px;cursor:pointer;}
   .tool svg{width:13px;height:13px;display:block;} .tool:hover{color:#93c5fd;border-color:var(--c-acc-bdr);}
@@ -192,6 +220,11 @@ export const STYLES = `
   .tl-track.grab{cursor:grabbing;}
   .tl-track::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12 - 1px),rgba(255,255,255,.04) calc(100%/12));}
   .t-rec{position:absolute;top:0;height:100%;background:rgba(30,80,200,.5);pointer-events:none;}
+  /* Several events too close to tell apart, shown as one block with a count.
+     A tap zooms in on them. */
+  .t-grp{position:absolute;top:50%;transform:translate(-50%,-50%);min-width:16px;height:18px;padding:0 3px;box-sizing:border-box;border-radius:4px;z-index:2;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.6);box-shadow:0 0 0 1px rgba(0,0,0,.35);}
+  .t-grp:hover{filter:brightness(1.15);}
   .t-ev{position:absolute;top:50%;transform:translateY(-50%);width:4px;height:18px;border-radius:3px;z-index:1;cursor:pointer;} .t-ev:hover{width:6px;}
   .tl-now{position:absolute;top:0;bottom:0;width:2px;background:#ef4444;pointer-events:none;}
   .tl-labels{display:flex;justify-content:space-between;margin-top:3px;} .tl-labels span{font-size:9px;color:var(--c-text4);}
@@ -200,6 +233,9 @@ export const STYLES = `
   /* ── filter + cal ── */
   .filter-panel,.cal-panel{background:var(--c-bg-panel);border:1px solid var(--c-border2);border-radius:9px;padding:8px;margin-bottom:7px;}
   .frow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:4px;} .frow:last-child{margin-bottom:0;} .frow-l{font-size:10px;color:var(--c-text3);width:38px;text-transform:uppercase;flex-shrink:0;}
+  /* Events too close to separate by zooming, listed to pick from. */
+  .grp-panel{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .grp-panel .chip{display:inline-flex;align-items:center;padding:5px 10px;font-size:12px;}
   .chip{background:var(--c-bg-panel);border:1px solid var(--c-border2);color:var(--c-text2);border-radius:14px;padding:3px 9px;font-size:11px;cursor:pointer;}
   .chip.on{background:var(--c-acc-bg);border-color:var(--c-acc-bdr);color:#93c5fd;}
   .cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;} .cal-head b{font-size:12px;} .cal-head button{background:none;border:none;color:#93c5fd;font-size:17px;cursor:pointer;padding:0 5px;}

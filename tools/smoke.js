@@ -84,7 +84,7 @@ if (!cardTag || !editorTag) fail('registration', `card=${cardTag} editor=${edito
 // used before its declaration blows up.
 const configs = [
   { camera_entity: 'camera.one' },
-  { cameras: [{ entity: 'camera.one' }, { entity: 'camera.two', span: 2 }] },
+  { cameras: [{ entity: 'camera.one', color: '#ff8800' }, { entity: 'camera.two', span: 2 }] },
   { cameras: [{ entity: 'camera.one' }], grid_layout: '6-big' },
   { cameras: [{ entity: 'camera.one' }], grid_columns: 3, live_provider: 'go2rtc' },
 ];
@@ -106,4 +106,104 @@ for (const config of configs) {
   }
 }
 
-console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs`);
+// Lifecycle (#15): Home Assistant can detach a card when you leave a view and
+// reattach the same instance when you come back. Whatever disconnectedCallback
+// stops, connectedCallback has to start again, and a card that was never
+// started must not be started from there.
+function lifecycle(viewMode) {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  const calls = [];
+  for (const m of ['_mountEngine', '_mountGrid', '_subscribe', '_loadWindow', '_startRefresh']) {
+    card[m] = () => { calls.push(m); };
+  }
+  card.connectedCallback();
+  if (calls.length) fail('lifecycle', `a card that never started did work on attach: ${calls}`);
+  card._hass = { states: {} };
+  card._started = true;
+  card._viewMode = viewMode;
+  card.disconnectedCallback();
+  card.connectedCallback();
+  const want = viewMode === 'grid' ? '_mountGrid' : '_mountEngine';
+  for (const m of [want, '_subscribe', '_startRefresh', '_loadWindow']) {
+    if (!calls.includes(m)) fail('lifecycle', `${viewMode} view: ${m} not restored after reattach (got ${calls})`);
+  }
+  calls.length = 0;
+  card.connectedCallback();
+  if (calls.length) fail('lifecycle', `a second attach without a detach did work again: ${calls}`);
+}
+try { lifecycle('single'); lifecycle('grid'); } catch (err) { fail('lifecycle', err); }
+
+// Timeline: events too close to tell apart become one counted block, events
+// far apart stay separate ticks, and in grid view each carries its camera.
+function timeline() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  card._camCache['camera.one'] = { cam: 'one' };
+  card._camCache['camera.two'] = { cam: 'two' };
+  card._eventsMode = 'all';
+  card._winStart = 0; card._winEnd = 1000;
+  const ev = (t, cam, label = 'person') => ({ id: `${t}-x`, start_time: t, camera: cam, label });
+  // At 1000px for 1000s, 1s is 1px: three within 9px of each other, two alone.
+  card._allDisplayEvents = () => [ev(100, 'one'), ev(104, 'two'), ev(108, 'one'), ev(500, 'two'), ev(900, 'one')];
+  let html = '';
+  const track = { clientWidth: 1000, set innerHTML(v) { html = v; } };
+  card._$ = sel => (sel === '#tl-track' ? track : null);
+  card._renderTimeline();
+  const grp = html.match(/class="t-grp"[^>]*>(\d+)</g) || [];
+  const ticks = html.match(/class="t-ev"/g) || [];
+  if (grp.length !== 1 || !/>3</.test(grp[0])) fail('timeline', `expected one group of 3, got ${grp}`);
+  if (ticks.length !== 2) fail('timeline', `expected 2 separate ticks, got ${ticks.length}`);
+  if (!/data-cis="0,1"/.test(html)) fail('timeline', 'group does not name both cameras');
+  if (!/data-tick="500-x" data-cis="1"/.test(html)) fail('timeline', 'tick does not name its camera');
+  // Zooming into a block and pressing Back returns to exactly the window before.
+  card._loadWindow = () => {}; card._renderRange = () => {};
+  card._winStart = 1000; card._winEnd = 2000;
+  card._zoomTo(1100, 1108);
+  if (card._winStart === 1000) fail('timeline', 'zooming into a block did not change the window');
+  card._zoomBack();
+  if (card._winStart !== 1000 || card._winEnd !== 2000) fail('timeline', `Back gave ${card._winStart}-${card._winEnd}, not 1000-2000`);
+  card._zoomTo(1100, 1108); card._goNow();
+  if (card._zoomStack.length) fail('timeline', 'Now left a way back behind');
+  // A group that zooming cannot separate is offered as a list instead.
+  const block = a => ({ dataset: { grpS: String(a), grpE: String(a + 4), grpIds: 'x,y' } });
+  card._pickGroup = () => {};
+  card._winStart = 0; card._winEnd = 21600;
+  if (card._openGroup(block(100)) !== 'zoom') fail('timeline', 'a group in a 6 hour window should zoom in');
+  card._winStart = 0; card._winEnd = 300;
+  if (card._openGroup(block(100)) !== 'pick') fail('timeline', 'a group at the closest zoom should be listed, not zoomed again');
+}
+try { timeline(); } catch (err) { fail('timeline', err); }
+
+// Recordings tab in grid view: every camera's recordings, each row naming its
+// camera so a tap can play it in that camera's single view.
+function recordingsInGrid() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  card._camCache['camera.one'] = { cam: 'one', recordings: [{ start_time: 100, end_time: 200 }] };
+  card._camCache['camera.two'] = { cam: 'two', recordings: [{ start_time: 300, end_time: 400 }] };
+  card._eventsMode = 'all';
+  let html = '';
+  card._renderRecordings({ set innerHTML(v) { html = v; } });
+  if (!/data-ci="0"/.test(html) || !/data-ci="1"/.test(html)) fail('recordings', `grid view should list both cameras, got ${html.slice(0, 200)}`);
+}
+try { recordingsInGrid(); } catch (err) { fail('recordings', err); }
+
+// Grid view loads every camera's recordings for the window on screen, not only
+// the active camera's.
+async function recordingsLoaded() {
+  const card = new (registry.get(cardTag))();
+  card.setConfig({ cameras: [{ entity: 'camera.one' }, { entity: 'camera.two' }] });
+  for (const [e, c] of [['camera.one', 'one'], ['camera.two', 'two']]) card._camCache[e] = { cam: c, clientId: 'frigate', discovered: true };
+  card._activeCamIdx = 0; card._eventsMode = 'all'; card._winStart = 0; card._winEnd = 1000;
+  card._ws = async q => (q.type === 'frigate/recordings/get' ? [{ start_time: 10, end_time: 20, camera: q.camera }] : []);
+  card._renderList = () => {}; card._renderTimeline = () => {};
+  await card._loadAllCamsBackground();
+  for (const e of ['camera.one', 'camera.two']) {
+    if (!(card._camCache[e].recordings || []).length) fail('recordings', `${e} has no recordings after loading the grid`);
+  }
+}
+recordingsLoaded()
+  .then(() => console.log(`OK smoke test: ${cardTag} and ${editorTag} render for ${configs.length} configs, lifecycle restores after reattach, timeline groups close events, grid loads every camera's recordings`))
+  .catch(err => fail('recordings', err));
+

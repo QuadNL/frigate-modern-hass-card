@@ -7,7 +7,7 @@
  * always-visible compact latest event, camera entity picker in editor.
  * ---------------------------------------------------------------
  */
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 export const CARD_TAG = 'frigate-modern-hass-card';
 export const DAY = 86400;
 // Smallest tile width the automatic grid will produce, in px. Below this a
@@ -19,6 +19,10 @@ export const MIN_TILE_PX = 200;
 // so every phone falls under it: an Android phone is 412 CSS px wide, the
 // largest iPhone 430.
 export const PHONE_PX = 500;
+// Narrowest a tile may get on a phone when stacking is switched off. Turning it
+// off asks for a grid there, and the general floor above would make a 375px
+// phone a single column again, quietly undoing that choice.
+export const PHONE_MIN_TILE_PX = 100;
 export const DEFAULT_ROTATE_S = 30;   // seconds used when rotate_seconds=0 and user enables rotation
 
 export const ICONS = {
@@ -55,7 +59,36 @@ export const LABEL_COLORS = { person:'#3b82f6', car:'#a855f7', motion:'#f59e0b',
 export const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#10b981','#f472b6','#22d3ee','#eab308','#ef4444','#f97316'];
 export function labelColor(l) { if (!l) return '#f59e0b'; if (LABEL_COLORS[l]) return LABEL_COLORS[l]; let h=0; for (const c of l) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
 // per-camera recording bar colours (distinct from event marker colours)
-export const CAM_COLORS = ['rgba(30,80,200,.5)','rgba(210,80,30,.5)','rgba(30,170,80,.5)','rgba(170,30,180,.5)'];
+// One colour per camera, in the order of the camera list. Eight, because in
+// grid view these tell the cameras apart on a single shared timeline, and with
+// four the fifth camera looked exactly like the first.
+export const CAM_COLORS = [
+  'rgba(30,80,200,.5)', 'rgba(210,80,30,.5)', 'rgba(30,170,80,.5)', 'rgba(170,30,180,.5)',
+  'rgba(220,180,20,.5)', 'rgba(20,170,190,.5)', 'rgba(220,50,110,.5)', 'rgba(140,150,160,.5)',
+];
+// Recording band in grid view, where blue already means the first camera.
+export const REC_NEUTRAL = 'rgba(148,163,184,.35)';
+// A group of events that spans cameras or kinds, so no single colour fits.
+export const REC_GROUP = '#64748b';
+// The same colour at full strength, for ticks and legend swatches. Past eight
+// cameras the palette would repeat, so camera 9 looked like camera 1: spread
+// that many hues evenly around the wheel instead, one per camera. At sixteen the
+// neighbours get close, which is why the tooltip names the camera as well.
+// Always hex, because the editor shows it in an <input type="color">, which
+// accepts nothing else.
+const hex2 = v => Math.round(v).toString(16).padStart(2, '0');
+function hslHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return `#${hex2(f(0) * 255)}${hex2(f(8) * 255)}${hex2(f(4) * 255)}`;
+}
+export function camSolid(i, count = 0) {
+  if (count > CAM_COLORS.length) return hslHex(Math.round(i * 360 / count), 70, 55);
+  const [r, g, b] = CAM_COLORS[i % CAM_COLORS.length].match(/\d+/g).map(Number);
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
+}
+export const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 // Predefined grid layouts. A layout is just a column count plus a size per
 // position, so it rides on the same span mechanism as a hand written config.
 // The editor draws each one as numbered cells, because "span: 2" tells nobody
