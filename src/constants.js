@@ -50,6 +50,15 @@ export const ICONS = {
   panelOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M14 5v14"/></svg>',
   grid:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8zm6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z"/></svg>',
   person:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
+  // PTZ controls: a pad of four arrows, zoom, stop.
+  ptz:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.2 3.5h-2.2v4h-2v-4H8.8L12 2zm0 20l-3.2-3.5H11v-4h2v4h2.2L12 22zM2 12l3.5-3.2v2.2h4v2h-4v2.2L2 12zm20 0l-3.5 3.2V13h-4v-2h4V8.8L22 12zM12 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>',
+  ptzUp:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 15.4L12 10.8l4.6 4.6L18 14l-6-6-6 6z"/></svg>',
+  ptzDown:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.4 8.6L12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>',
+  ptzLeft:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.4 7.4L10.8 12l4.6 4.6L14 18l-6-6 6-6z"/></svg>',
+  ptzRight:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 16.6l4.6-4.6-4.6-4.6L10 6l6 6-6 6z"/></svg>',
+  ptzStop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
+  zoomIn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm.5-7H9v2H7v1h2v2h1v-2h2V9h-2V7z"/></svg>',
+  zoomOut:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zM7 9h5v1H7V9z"/></svg>',
 };
 
 // ── helpers ──────────────────────────────────────────────────

@@ -90,6 +90,7 @@ default_view: single     # or 'grid'
 | `stack_on_mobile` | boolean | `true` | Show one camera per row on a phone, whatever the layout says |
 | `min_tile_width` | number | `200` | Narrowest a grid tile may get, in pixels, before the grid drops a column |
 | `events_collapsed` | boolean | `false` | Start with the events panel hidden, giving the cameras the full width |
+| `cameras[].ptz` | boolean | `true` | Show a pan / tilt / zoom pad over the live picture of cameras Frigate reports as PTZ (needs Frigate's ONVIF set up and the Frigate integration's `frigate.ptz` service). Set `ptz: false` to hide it on a camera; the editor has a PTZ checkbox per camera |
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
 | `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
