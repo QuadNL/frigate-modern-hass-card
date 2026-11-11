@@ -90,6 +90,23 @@ export const STYLES = `
   .ph-spin{width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--c-acc);border-radius:50%;animation:spin .8s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .feed-top{position:absolute;top:10px;left:12px;right:12px;z-index:6;display:flex;align-items:center;gap:8px;}
+  /* PTZ pad over the live picture: bottom right, big targets, no hover needed. */
+  .ptz{position:absolute;right:12px;bottom:12px;z-index:7;display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+  .ptz[hidden]{display:none;}
+  .ptz-toggle,.ptz-btn{background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+  .ptz-toggle{width:44px;height:44px;} .ptz-toggle svg{width:22px;height:22px;}
+  .ptz-toggle.on{background:var(--c-acc,#3b82f6);border-color:var(--c-acc,#3b82f6);}
+  .ptz-panel{display:flex;flex-direction:row;align-items:flex-end;gap:8px;padding:8px;border-radius:16px;background:rgba(15,21,40,.55);}
+  .ptz-panel[hidden]{display:none;}
+  .ptz-row{display:flex;align-items:center;gap:8px;}
+  .ptz.closed .ptz-presets{display:none;}
+  .ptz-pad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:3px;}
+  .ptz-pad .ptz-btn{width:44px;height:44px;} .ptz-btn svg{width:24px;height:24px;display:block;}
+  .ptz-up{grid-column:2;grid-row:1;} .ptz-left{grid-column:1;grid-row:2;} .ptz-stop{grid-column:2;grid-row:2;}
+  .ptz-right{grid-column:3;grid-row:2;} .ptz-down{grid-column:2;grid-row:3;}
+  .ptz-btn:active{background:var(--c-acc,#3b82f6);border-color:var(--c-acc,#3b82f6);}
+  .ptz-zoom{display:flex;flex-direction:column;gap:6px;} .ptz-zoom .ptz-btn{width:44px;height:44px;}
+  .ptz-presets{background:rgba(15,21,40,.9);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:10px;padding:8px 10px;font-size:13px;min-height:44px;max-width:150px;}
   .btn{display:inline-flex;align-items:center;gap:5px;background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .btn svg{width:14px;height:14px;}
 

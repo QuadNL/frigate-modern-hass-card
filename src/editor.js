@@ -59,6 +59,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
         <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
         ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
         <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+        <label class="cptz" title="Show the PTZ pad on this camera (when Frigate reports it as PTZ)"><input type="checkbox" data-cam-ptz="${i}" ${c.ptz===false?'':'checked'}> PTZ controls</label>
       </div>`).join('');
 
     const hiddenTabs = new Set(this._config?.hidden_tabs || []);
@@ -85,7 +86,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
       .section{border-top:1px solid var(--ed-line);padding-top:12px;}
       .hint{color:var(--ed-dim);font-size:11px;}
-      .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
+      .cr{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px;}
+      .cptz{flex-basis:100%;display:flex;gap:4px;align-items:center;padding-left:26px;font-size:12px;cursor:pointer;}
       .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
         background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
       .ce,.cn{flex:1;padding:7px;min-width:0;}
@@ -358,12 +360,15 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       // one, so compare it with the default for this place in the list.
       const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
       const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
+      const ptzOn = r.querySelector('[data-cam-ptz]')?.checked !== false;
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
         ...(color ? { color } : {}),
+        // On is the default, so only the opt-out is written.
+        ...(ptzOn ? {} : { ptz: false }),
       };
     });
   }
