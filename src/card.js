@@ -1,12 +1,14 @@
 // card.js — main FrigateModernHassCard custom element
-import { VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
-         labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, PTZ_OVERLAY_MIN_PX, MENU_IS_NEW, REC_MAX_S, normSpan, findLayout, mkCamState, camDisplayName } from './constants.js';
+import {
+  VERSION, CARD_TAG, DAY, DEFAULT_ROTATE_S, ICONS, cap, parseWs,
+  labelColor, camSolid, isHex, REC_NEUTRAL, REC_GROUP, MIN_TILE_PX, PHONE_PX, PHONE_MIN_TILE_PX, PTZ_OVERLAY_MIN_PX, MENU_IS_NEW, REC_MAX_S, normSpan, findLayout, mkCamState, camDisplayName
+} from './constants.js';
 import { STYLES } from './styles.js';
 
 export class FrigateModernHassCard extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode:'open' });
+    this.attachShadow({ mode: 'open' });
     this._hass = null; this._config = null; this._started = false;
     this._activeCamIdx = 0;
     this._urlViewMode = null;
@@ -36,15 +38,15 @@ export class FrigateModernHassCard extends HTMLElement {
     this._domCache = {}; // querySelector result cache — cleared on re-render
   }
 
-  static getConfigElement() { return document.createElement(CARD_TAG+'-editor'); }
-  static getStubConfig() { return { camera_entity:'camera.front_door' }; }
+  static getConfigElement() { return document.createElement(CARD_TAG + '-editor'); }
+  static getStubConfig() { return { camera_entity: 'camera.front_door' }; }
 
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false }));
+      cameras = config.cameras.map(c => ({ entity: c.entity, name: c.name || null, span: normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false, buttons: Array.isArray(c.buttons) ? c.buttons.slice(0, 4).filter(b => b && b.label && b.action).map(b => ({ label: String(b.label).slice(0, 40), action: b.action })) : [] }));
     else if (config.camera_entity)
-      cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
+      cameras = [{ entity: config.camera_entity, name: config.title || null, span: normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
 
     this._urlId = this._slugUrlId(config.url_id || config.title);
@@ -60,7 +62,7 @@ export class FrigateModernHassCard extends HTMLElement {
       window_hours: config.window_hours || 6,
       // 'auto' follows the 12/24 hour choice in the user's Home Assistant
       // profile; '12h' and '24h' override it for this card.
-      time_format: ['12h','24h'].includes(config.time_format) ? config.time_format : 'auto',
+      time_format: ['12h', '24h'].includes(config.time_format) ? config.time_format : 'auto',
       refresh_seconds: Math.max(15, config.refresh_seconds || 45),
       browse_expanded: config.browse_expanded === true,
       rotate_seconds: config.rotate_seconds ?? 0,
@@ -68,7 +70,7 @@ export class FrigateModernHassCard extends HTMLElement {
       default_view: config.default_view === 'grid' ? 'grid' : 'single',
       hidden_tabs: Array.isArray(config.hidden_tabs) ? config.hidden_tabs : [],
       stream_height: config.stream_height ? Number(config.stream_height) : null,
-      theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
+      theme: ['light', 'dark', 'auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
       // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
@@ -109,7 +111,7 @@ export class FrigateModernHassCard extends HTMLElement {
       // forever while MSE quietly carries the stream anyway. 'webrtc' is there
       // for local setups that want the lowest possible latency; 'auto' leaves
       // the choice to the player (it tries WebRTC first).
-      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
+      go2rtc_mode: ['auto', 'webrtc', 'mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
     this._eventsCollapsed = this._config.events_collapsed;
@@ -123,7 +125,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (!this._started) { this._started = true; this._start(); return; }
     // keep active stream in sync
     if (this._engine) {
-      try { this._engine.hass = hass; } catch(_) {}
+      try { this._engine.hass = hass; } catch (_) { }
       // Only update stateObj when entity state actually changes (e.g. offline→online).
       // Resetting stateObj on every hass update restarts the stream and resets muted state.
       const ent = this._activeCam?.entity;
@@ -131,7 +133,7 @@ export class FrigateModernHassCard extends HTMLElement {
       if (ent && newState !== this._lastEngineState) {
         this._lastEngineState = newState;
         if ('stateObj' in this._engine) {
-          try { this._engine.stateObj = this._hlsStateObj(ent); } catch(_) {}
+          try { this._engine.stateObj = this._hlsStateObj(ent); } catch (_) { }
         }
       }
     }
@@ -172,7 +174,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._resumeAtNow = this._started && this._isNowWindow();
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
-    if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
+    if (this._unsub) { try { this._unsub.then(u => u && u()); } catch (_) { } this._unsub = null; }
     if (this._ro) this._ro.disconnect();
     this._revokeClipBlob();
     this._teardownGo2rtc();
@@ -182,7 +184,7 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── init ─────────────────────────────────────────────────
   _startRefresh() {
     clearInterval(this._refresh);
-    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds * 1000);
   }
   _slugUrlId(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
@@ -265,8 +267,8 @@ export class FrigateModernHassCard extends HTMLElement {
     // enormous on a wide dashboard.
     this._setupResizeObserver();
     await this._discoverAll();
-    const now = Math.floor(Date.now()/1000);
-    this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
+    const now = Math.floor(Date.now() / 1000);
+    this._winEnd = now; this._winStart = now - this._config.window_hours * 3600;
     const initialView = this._urlViewMode || this._config.default_view;
     const startInGrid = initialView === 'grid' && this._config.cameras.length > 1;
     if (startInGrid) this._setViewMode('grid');
@@ -290,7 +292,7 @@ export class FrigateModernHassCard extends HTMLElement {
     if (cache.discovered) return;
     const ent = this._hass.states[entity]; if (!ent) return;
     cache.clientId = ent.attributes?.client_id || ent.attributes?.mqtt_client_id || 'frigate';
-    cache.cam = ent.attributes?.camera_name || entity.replace(/^camera\./,'');
+    cache.cam = ent.attributes?.camera_name || entity.replace(/^camera\./, '');
     cache.discovered = true;
     this._camCache[entity] = cache;
   }
@@ -522,7 +524,7 @@ export class FrigateModernHassCard extends HTMLElement {
       ? `/api/frigate/${clientId}/go2rtc/ws/api/ws${query}`
       : `/api/frigate/${clientId}/mse/api/ws${query}`;
     const known = this._go2rtcPath?.includes('/go2rtc/ws/') ? 'new'
-                : this._go2rtcPath ? 'old' : null;
+      : this._go2rtcPath ? 'old' : null;
     return known ? [build(known)] : [build('new'), build('old')];
   }
   _applyGo2rtcMode(player) {
@@ -562,8 +564,8 @@ export class FrigateModernHassCard extends HTMLElement {
       retries++;
       if (retries <= MAX_SOFT_RETRIES) {
         console.warn('[frigate-modern-hass-card] go2rtc stream stalled, reconnecting', `(${retries}/${MAX_SOFT_RETRIES})`);
-        try { player.ondisconnect(); } catch (_) {}
-        try { player.onconnect(); } catch (_) {}
+        try { player.ondisconnect(); } catch (_) { }
+        try { player.onconnect(); } catch (_) { }
       } else {
         console.warn('[frigate-modern-hass-card] go2rtc could not recover, falling back to the Home Assistant stream');
         clearInterval(player._fmhcWatch);
@@ -576,8 +578,8 @@ export class FrigateModernHassCard extends HTMLElement {
     clearInterval(p._fmhcWatch);
     // Close the socket/peer connection now rather than waiting out the
     // player's own disconnect timeout.
-    try { p.ondisconnect(); } catch (_) {}
-    try { p.remove(); } catch (_) {}
+    try { p.ondisconnect(); } catch (_) { }
+    try { p.remove(); } catch (_) { }
   }
   _teardownGridGo2rtc() {
     (this._gridPlayers || []).forEach(p => this._stopGo2rtcPlayer(p));
@@ -651,17 +653,17 @@ export class FrigateModernHassCard extends HTMLElement {
     let pinchStartDist = 1, pinchStartScale = 1, midX = 0, midY = 0;
     let panStartX = 0, panStartY = 0, panStartTx = 0, panStartTy = 0;
     let lastTapT = 0, lastTapX = 0, lastTapY = 0;
-    const dist = (a,b) => Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     const apply = () => { engine.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const clampPan = () => {
       const w = engine.offsetWidth, h = engine.offsetHeight;
-      tx = Math.min(0, Math.max(w - w*scale, tx));
-      ty = Math.min(0, Math.max(h - h*scale, ty));
+      tx = Math.min(0, Math.max(w - w * scale, tx));
+      ty = Math.min(0, Math.max(h - h * scale, ty));
     };
     const zoomAt = (px, py, ns) => {
       ns = Math.min(MAX, Math.max(1, ns));
-      tx = px - (px - tx) * (ns/scale);
-      ty = py - (py - ty) * (ns/scale);
+      tx = px - (px - tx) * (ns / scale);
+      ty = py - (py - ty) * (ns / scale);
       scale = ns;
       clampPan();
     };
@@ -672,11 +674,11 @@ export class FrigateModernHassCard extends HTMLElement {
         pinchStartDist = dist(e.touches[0], e.touches[1]) || 1;
         pinchStartScale = scale;
         const r = engine.getBoundingClientRect();
-        midX = (e.touches[0].clientX + e.touches[1].clientX)/2 - r.left;
-        midY = (e.touches[0].clientY + e.touches[1].clientY)/2 - r.top;
+        midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+        midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
       } else if (e.touches.length === 1) {
         const t = e.touches[0], now = Date.now();
-        if (now - lastTapT < 300 && Math.hypot(t.clientX-lastTapX, t.clientY-lastTapY) < 30) {
+        if (now - lastTapT < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 30) {
           const r = engine.getBoundingClientRect();
           if (scale > 1) { scale = 1; tx = 0; ty = 0; }
           else zoomAt(t.clientX - r.left, t.clientY - r.top, 2.5);
@@ -909,7 +911,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._moreOpen = open;
     if (open) {
       this._menuSeenHere = true;
-      try { localStorage.setItem('fmhc-menu-seen', '1'); } catch (_) {}
+      try { localStorage.setItem('fmhc-menu-seen', '1'); } catch (_) { }
       // Clicks outside the card cannot reach _click, so listen on the document.
       this._moreOutside = e => { if (!e.composedPath().includes(this)) this._moreToggle(false); };
       this._moreKey = e => { if (e.key === 'Escape') { this._moreToggle(false); this.shadowRoot.querySelector('#sc-more')?.focus(); } };
@@ -936,6 +938,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const tail = [
       `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
       `<button role="menuitem" data-more="record" class="mi-rec">${ICONS.record}<span>${recording ? 'Stop recording' : 'Start recording'}</span>${tag}</button>`,
+      ...(this._activeCam?.buttons || []).map((b, i) => `<button role="menuitem" data-more-button="${i}">${ICONS.record}<span>${String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</span></button>`),
     ];
     return [...head, ...(head.length ? ['<hr>'] : []), ...tail].join('');
   }
@@ -945,6 +948,46 @@ export class FrigateModernHassCard extends HTMLElement {
     if (what === 'talk') return this._talkOpen ? this._talkClose('closed') : this._talkShow();
     if (what === 'snapshot') return this._snapshot(entity);
     if (what === 'record') return this._recs?.[entity] ? this._recStop(entity) : this._recStart(entity);
+  }
+  _moreButtonAction(index) {
+    const button = this._activeCam?.buttons?.[index];
+    if (!button) return;
+    const action = button.action;
+    if (!action || !this._hass) return;
+    return this._triggerAction(action).catch(err => {
+      this._dbg('camera button action failed', button.label, action, err);
+      this._toast(`Could not run ${button.label}: ${err?.message || err}`, 7000);
+    });
+  }
+  async _triggerAction(action) {
+    // The HA action selector stores its value as a sequence, even when the
+    // user configured only one action (e.g. [{ action: 'light.turn_off' }]).
+    if (Array.isArray(action)) {
+      for (const step of action) await this._triggerAction(step);
+      return;
+    }
+    if (!action || typeof action !== 'object') throw new Error('No Home Assistant action is configured');
+    const type = action.action;
+    if (type === 'perform-action' || type === 'call-service' || (typeof type === 'string' && type.includes('.'))) {
+      const service = action.perform_action || action.service || type;
+      const [domain, serviceName] = String(service || '').split('.', 2);
+      if (!domain || !serviceName) throw new Error('Select a valid Home Assistant service');
+      const data = { ...(action.data || action.service_data || {}) };
+      if (action.target) Object.assign(data, action.target);
+      if (action.entity_id) data.entity_id = action.entity_id;
+      return this._hass.callService(domain, serviceName, data);
+    }
+    if (type === 'toggle' || type === 'turn_on' || type === 'turn_off') {
+      const target = action.target || {};
+      const entityIds = target.entity_id || action.entity_id;
+      if (!entityIds) throw new Error('This action needs an entity target');
+      const entities = Array.isArray(entityIds) ? entityIds : [entityIds];
+      const domains = [...new Set(entities.map(entity => entity.split('.')[0]))];
+      if (domains.length !== 1) throw new Error('Toggle actions need targets from one domain');
+      const service = type === 'toggle' ? 'toggle' : type;
+      return this._hass.callService(domains[0], service, { entity_id: entityIds });
+    }
+    throw new Error(`Unsupported action type: ${type || 'not selected'}`);
   }
 
   // ── snapshot and manual recording ─────────────────────────
@@ -1042,7 +1085,7 @@ export class FrigateModernHassCard extends HTMLElement {
         const stream = j?.producers ? j : (j?.[cc.cam] || {});
         yes = (stream.producers || []).some(p => (p.medias || []).some(m => /^audio,\s*sendonly/.test(m)));
       }
-    } catch (_) {}
+    } catch (_) { }
     cc.talkAsking = false;
     cc.talk = yes;
     this._dbg('talk', entity, yes ? 'two-way audio available' : 'no two-way audio');
@@ -1103,7 +1146,7 @@ export class FrigateModernHassCard extends HTMLElement {
       ws.addEventListener('message', ev => {
         let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
         if (msg.type === 'webrtc/answer') pc.setRemoteDescription({ type: 'answer', sdp: msg.value }).catch(() => this._talkFail(t));
-        else if (msg.type === 'webrtc/candidate' && msg.value) pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }).catch(() => {});
+        else if (msg.type === 'webrtc/candidate' && msg.value) pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }).catch(() => { });
         else if (msg.type === 'error') { this._dbg('talk error from go2rtc', msg.value); this._talkFail(t); }
       });
       ws.addEventListener('open', async () => {
@@ -1134,9 +1177,9 @@ export class FrigateModernHassCard extends HTMLElement {
   // indicator goes off with the last stopped track.
   _talkRelease(t) {
     clearTimeout(t.timer);
-    try { t.stream?.getTracks().forEach(tr => tr.stop()); } catch (_) {}
-    try { t.pc?.close(); } catch (_) {}
-    try { t.ws?.close(); } catch (_) {}
+    try { t.stream?.getTracks().forEach(tr => tr.stop()); } catch (_) { }
+    try { t.pc?.close(); } catch (_) { }
+    try { t.ws?.close(); } catch (_) { }
   }
   _talkMute(v) {
     const t = this._talk; if (!t) return;
@@ -1254,7 +1297,7 @@ export class FrigateModernHassCard extends HTMLElement {
     pad.addEventListener('pointerdown', e => {
       const b = target(e); if (!b) return;
       e.preventDefault();
-      try { b.setPointerCapture(e.pointerId); } catch (_) {}
+      try { b.setPointerCapture(e.pointerId); } catch (_) { }
       const [action, arg] = b.dataset.ptz.split(':');
       this._ptzStart(action, arg);
     });
@@ -1353,7 +1396,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // phone, and each item only appears when the camera can do it.
     const more = !inGrid && this._activeCam
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
-        + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
+      + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
     bar.innerHTML = `${grid}${fs}${events}`;
     // Last in the row, where an overflow button is looked for, so the menu also
@@ -1439,8 +1482,8 @@ export class FrigateModernHassCard extends HTMLElement {
     const mounting = this._mountEngine();
     if (!this._camCache[newEnt].discovered) await this._discoverOne(newEnt);
     const cached = this._camCache[newEnt];
-    this._events = cached.events||[]; this._recordings = cached.recordings||[];
-    this._reviews = cached.reviews||[]; this._kept = cached.kept||[];
+    this._events = cached.events || []; this._recordings = cached.recordings || [];
+    this._reviews = cached.reviews || []; this._kept = cached.kept || [];
     this._renderCamSwitcher(); this._syncStatus(); this._renderRec();
     await mounting;
     this._renderAll();
@@ -1451,16 +1494,16 @@ export class FrigateModernHassCard extends HTMLElement {
     this._stopRotate();
     const secs = this._config.rotate_seconds || DEFAULT_ROTATE_S;
     this._rotateTimer = setInterval(() => {
-      const next = (this._activeCamIdx+1) % this._config.cameras.length;
+      const next = (this._activeCamIdx + 1) % this._config.cameras.length;
       this._switchCamera(next);
-    }, secs*1000);
+    }, secs * 1000);
   }
-  _stopRotate() { if (this._rotateTimer) { clearInterval(this._rotateTimer); this._rotateTimer=null; } }
+  _stopRotate() { if (this._rotateTimer) { clearInterval(this._rotateTimer); this._rotateTimer = null; } }
   _toggleRotate() {
-    if (this._rotateTimer) { this._stopRotate(); this._toast('Auto-rotate off',1800); }
+    if (this._rotateTimer) { this._stopRotate(); this._toast('Auto-rotate off', 1800); }
     else {
       if (!this._config.rotate_seconds) this._config.rotate_seconds = DEFAULT_ROTATE_S;
-      this._startRotate(); this._toast(`Rotating every ${this._config.rotate_seconds}s`,1800);
+      this._startRotate(); this._toast(`Rotating every ${this._config.rotate_seconds}s`, 1800);
     }
     this._renderCamSwitcher();
   }
@@ -1559,35 +1602,35 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
-  _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
+  _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now() / 1000)) < 120; }
 
   async _loadWindow(replace) {
     // A request that arrives mid-load is for a newer window: run it once this
     // one is done instead of dropping it, or the lists stay on the old window.
     if (this._loading) { this._loadAgain = true; return; }
     this._loading = true;
-    const { clientId, cam } = this._cc(); if (!clientId||!cam) { this._loading=false; return; }
-    const after=this._winStart, before=this._winEnd;
+    const { clientId, cam } = this._cc(); if (!clientId || !cam) { this._loading = false; return; }
+    const after = this._winStart, before = this._winEnd;
     try {
-      const ev = await this._ws({ type:'frigate/events/get', instance_id:clientId, cameras:[cam], after, before, limit:20 });
-      this._events = Array.isArray(ev)?ev:[];
-    } catch(e) { console.error('[Frigate] events',e); }
+      const ev = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], after, before, limit: 20 });
+      this._events = Array.isArray(ev) ? ev : [];
+    } catch (e) { console.error('[Frigate] events', e); }
     try {
-      const rec = await this._ws({ type:'frigate/recordings/get', instance_id:clientId, camera:cam, after, before });
-      this._recordings = Array.isArray(rec)?rec:[];
-    } catch(_) { this._recordings=[]; }
-    const ent=this._activeCam?.entity;
-    if (ent&&this._camCache[ent]) { this._camCache[ent].events=this._events; this._camCache[ent].recordings=this._recordings; }
-    if (this._tab==='reviews') await this._loadReviews();
+      const rec = await this._ws({ type: 'frigate/recordings/get', instance_id: clientId, camera: cam, after, before });
+      this._recordings = Array.isArray(rec) ? rec : [];
+    } catch (_) { this._recordings = []; }
+    const ent = this._activeCam?.entity;
+    if (ent && this._camCache[ent]) { this._camCache[ent].events = this._events; this._camCache[ent].recordings = this._recordings; }
+    if (this._tab === 'reviews') await this._loadReviews();
     this._loading = false;
     if (this._loadAgain) { this._loadAgain = false; return this._loadWindow(replace); }
-    if (this._eventsMode==='all') this._loadAllCamsBackground();
+    if (this._eventsMode === 'all') this._loadAllCamsBackground();
     this._renderAll();
   }
 
   // Fetch all non-active cameras in parallel — was sequential, now Promise.all
   async _loadAllCamsBackground() {
-    const after=this._winStart, before=this._winEnd;
+    const after = this._winStart, before = this._winEnd;
     const others = this._config.cameras.filter(c => {
       const cc = this._camCache[c.entity];
       return c.entity !== this._activeCam?.entity && cc && cc.discovered;
@@ -1602,63 +1645,63 @@ export class FrigateModernHassCard extends HTMLElement {
       ...others.map(async c => {
         const cc = this._camCache[c.entity];
         try {
-          const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
+          const ev = await this._ws({ type: 'frigate/events/get', instance_id: cc.clientId, cameras: [cc.cam], after, before, limit: 20 });
           cc.events = Array.isArray(ev) ? ev : [];
-        } catch(_) {}
+        } catch (_) { }
       }),
       ...all.map(async c => {
         const cc = this._camCache[c.entity];
         try {
-          const r = await this._ws({type:'frigate/recordings/get',instance_id:cc.clientId,camera:cc.cam,after,before});
+          const r = await this._ws({ type: 'frigate/recordings/get', instance_id: cc.clientId, camera: cc.cam, after, before });
           recs.set(c.entity, Array.isArray(r) ? r : []);
-        } catch(_) {}
+        } catch (_) { }
       }),
     ]);
     // The window moved while this was loading: these answers are for another
     // window, and the load for the new one is on its way.
     if (after !== this._winStart || before !== this._winEnd) return;
     for (const [ent, r] of recs) this._camCache[ent].recordings = r;
-    if (this._eventsMode==='all') { this._renderList(); this._renderTimeline(); }
+    if (this._eventsMode === 'all') { this._renderList(); this._renderTimeline(); }
   }
 
   async _loadKept() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const k=await this._ws({type:'frigate/events/get',instance_id:clientId,cameras:[cam],favorites:true,limit:200});
-      this._kept=Array.isArray(k)?k:[];
-      const ent=this._activeCam?.entity; if(ent&&this._camCache[ent]) this._camCache[ent].kept=this._kept;
-    } catch(_) { this._kept=[]; }
+      const k = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], favorites: true, limit: 200 });
+      this._kept = Array.isArray(k) ? k : [];
+      const ent = this._activeCam?.entity; if (ent && this._camCache[ent]) this._camCache[ent].kept = this._kept;
+    } catch (_) { this._kept = []; }
   }
   async _loadReviews() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const r=await this._ws({type:'frigate/reviews/get',instance_id:clientId,cameras:[cam],after:this._winStart,before:this._winEnd,limit:200});
-      this._reviews=Array.isArray(r)?r:[];
-    } catch(_) { this._reviews=[]; }
+      const r = await this._ws({ type: 'frigate/reviews/get', instance_id: clientId, cameras: [cam], after: this._winStart, before: this._winEnd, limit: 200 });
+      this._reviews = Array.isArray(r) ? r : [];
+    } catch (_) { this._reviews = []; }
   }
   async _loadCalendar() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const sum=await this._ws({type:'frigate/events/summary',instance_id:clientId,timezone:this._tz()});
-      if(Array.isArray(sum)) this._daysWithActivity=new Set(sum.filter(s=>s.camera===cam&&s.day).map(s=>s.day));
-    } catch(_) {}
+      const sum = await this._ws({ type: 'frigate/events/summary', instance_id: clientId, timezone: this._tz() });
+      if (Array.isArray(sum)) this._daysWithActivity = new Set(sum.filter(s => s.camera === cam && s.day).map(s => s.day));
+    } catch (_) { }
   }
-  _tz() { return this._hass?.config?.time_zone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'; }
+  _tz() { return this._hass?.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
 
   async _subscribe() {
-    const {clientId}=this._cc(); if(!this._hass?.connection||!clientId) return;
+    const { clientId } = this._cc(); if (!this._hass?.connection || !clientId) return;
     try {
-      this._unsub=this._hass.connection.subscribeMessage(
-        msg=>{ if(msg?.type==='end'&&this._isNowWindow()) this._scheduleReload(); },
-        {type:'frigate/events/subscribe',instance_id:clientId}
+      this._unsub = this._hass.connection.subscribeMessage(
+        msg => { if (msg?.type === 'end' && this._isNowWindow()) this._scheduleReload(); },
+        { type: 'frigate/events/subscribe', instance_id: clientId }
       );
-    } catch(_) {}
+    } catch (_) { }
   }
-  _scheduleReload() { clearTimeout(this._rt); this._rt=setTimeout(()=>this._loadWindow(true),1500); }
+  _scheduleReload() { clearTimeout(this._rt); this._rt = setTimeout(() => this._loadWindow(true), 1500); }
 
   // ── shell ─────────────────────────────────────────────────
   _renderShell() {
-    const title = this._config.title || (this._config.cameras.length===1 ? cap(camDisplayName(this._config.cameras[0])) : 'Cameras') || 'Camera';
+    const title = this._config.title || (this._config.cameras.length === 1 ? cap(camDisplayName(this._config.cameras[0])) : 'Cameras') || 'Camera';
     const sub = this._config.subtitle || 'Frigate';
     const multiCam = this._config.cameras.length > 1;
     const ht = new Set(this._config.hidden_tabs || []);
@@ -1668,7 +1711,7 @@ export class FrigateModernHassCard extends HTMLElement {
         : `<div class="pill icon-only" data-tab="${id}" title="${label}">${icon}</div>`;
 
     this.shadowRoot.innerHTML = `<style>${STYLES}</style>
-      <ha-card class="card ${this._config.theme==='light'?'theme-light':this._config.theme==='auto'?'theme-auto':''}" id="card">
+      <ha-card class="card ${this._config.theme === 'light' ? 'theme-light' : this._config.theme === 'auto' ? 'theme-auto' : ''}" id="card">
         <div class="layout" id="layout">
           <div class="col-left">
             <!-- feed: single stream or grid -->
@@ -1744,7 +1787,7 @@ export class FrigateModernHassCard extends HTMLElement {
         <div class="toast" id="toast" style="display:none"></div>
       </ha-card>`;
     this._domCache = {}; // invalidate DOM element cache after full re-render
-    this.shadowRoot.addEventListener('click', e=>this._click(e));
+    this.shadowRoot.addEventListener('click', e => this._click(e));
     this._wireScrub(); this._wireScroll(); this._wirePinchZoom(); this._wirePtz(); this._applyBrowse();
     if (multiCam) this._renderCamSwitcher();
     this._applyCardStyle();
@@ -1782,9 +1825,9 @@ export class FrigateModernHassCard extends HTMLElement {
     // Custom accent color — compute bg/border variants from hex
     const acc = this._config.accent_color;
     if (acc && /^#[0-9a-f]{6}$/i.test(acc)) {
-      const r = parseInt(acc.slice(1,3),16), g = parseInt(acc.slice(3,5),16), b = parseInt(acc.slice(5,7),16);
-      card.style.setProperty('--c-acc',     acc);
-      card.style.setProperty('--c-acc-bg',  `rgba(${r},${g},${b},.18)`);
+      const r = parseInt(acc.slice(1, 3), 16), g = parseInt(acc.slice(3, 5), 16), b = parseInt(acc.slice(5, 7), 16);
+      card.style.setProperty('--c-acc', acc);
+      card.style.setProperty('--c-acc-bg', `rgba(${r},${g},${b},.18)`);
       card.style.setProperty('--c-acc-bdr', `rgba(${r},${g},${b},.40)`);
     } else {
       card.style.removeProperty('--c-acc');
@@ -1793,12 +1836,32 @@ export class FrigateModernHassCard extends HTMLElement {
     }
 
     // Custom background color
+    // Helper to blend two 6-digit hex colors (weight: 0.0 to 1.0 of the second color)
+    const blendHex = (hex1, hex2, weight) => {
+      const c1 = parseInt(hex1.slice(1), 16);
+      const c2 = parseInt(hex2.slice(1), 16);
+
+      const r = Math.round(((c1 >> 16) * (1 - weight)) + ((c2 >> 16) * weight));
+      const g = Math.round((((c1 >> 8) & 0xff) * (1 - weight)) + (((c2 >> 8) & 0xff) * weight));
+      const b = Math.round(((c1 & 0xff) * (1 - weight)) + ((c2 & 0xff) * weight));
+
+      return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    };
+
+    // Custom background color
     const bg = this._config.bg_color;
     if (bg && /^#[0-9a-f]{6}$/i.test(bg)) {
       card.style.setProperty('--c-bg', bg);
+      // 85% white mix for a light, opaque panel
+      card.style.setProperty('--c-bg-panel', blendHex(bg, '#ffffff', 0.85));
+      // 15% black mix (or 92% white mix if you also want deep to be light)
+      card.style.setProperty('--c-bg-deep', blendHex(bg, '#000000', 0.15));
     } else {
       card.style.removeProperty('--c-bg');
+      card.style.removeProperty('--c-bg-panel');
+      card.style.removeProperty('--c-bg-deep');
     }
+
   }
 
   _setupResizeObserver() {
@@ -1825,7 +1888,7 @@ export class FrigateModernHassCard extends HTMLElement {
       // placeholder tiles depends on it. Only on an actual change, since this
       // reconnects every stream.
       if (this._viewMode === 'grid' && this._gridCols
-          && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
+        && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
         this._mountGrid();
       }
     });
@@ -1847,22 +1910,24 @@ export class FrigateModernHassCard extends HTMLElement {
   // ── cam switcher ──────────────────────────────────────────
   _renderCamSwitcher() {
     const el = this.shadowRoot.querySelector('#cam-switcher'); if (!el) return;
-    if (this._config.cameras.length < 2) { el.style.display='none'; return; }
+    if (this._config.cameras.length < 2) { el.style.display = 'none'; return; }
     el.style.display = '';
 
-    const tabs = this._config.cameras.map((c,i) => {
+    const tabs = this._config.cameras.map((c, i) => {
       const name = cap(camDisplayName(c));
       const active = this._viewMode === 'single' && i === this._activeCamIdx;
       const ok = this._hass?.states[c.entity]?.state !== 'unavailable';
-      return `<button class="cam-tab ${active?'active':''}" data-camidx="${i}"><span class="cam-dot" style="color:${ok?'#4ade80':'#ef4444'}">●</span> ${name}</button>`;
+      return `<button class="cam-tab ${active ? 'active' : ''}" data-camidx="${i}"><span class="cam-dot" style="color:${ok ? '#4ade80' : '#ef4444'}">●</span> ${name}</button>`;
     }).join('');
     el.innerHTML = `<div class="cam-tabs">${tabs}</div>
-      <button class="cam-rotate ${this._rotateTimer?'on':''}" id="rotate-btn" title="Auto-rotate">${ICONS.rotate}</button>`;
+      <button class="cam-rotate ${this._rotateTimer ? 'on' : ''}" id="rotate-btn" title="Auto-rotate">${ICONS.rotate}</button>`;
   }
 
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#sc-more')) return this._moreToggle();
+    const customMore = e.target.closest('[data-more-button]');
+    if (customMore) { this._moreToggle(false); return this._moreButtonAction(Number(customMore.dataset.moreButton)); }
     const mi = e.target.closest('[data-more]');
     if (mi) { this._moreToggle(false); return this._moreAction(mi.dataset.more); }
     // A click anywhere else in the card closes the menu and still does its own thing.
@@ -1890,20 +1955,20 @@ export class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
     if (e.target.closest('[data-mark-all]')) return this._markAll();
-    if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed=!this._showReviewed; this._renderList(); return; }
+    if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed = !this._showReviewed; this._renderList(); return; }
 
     const setvm = e.target.closest('[data-setviewmode]'); if (setvm) return this._setViewMode(setvm.dataset.setviewmode);
     const viewm = e.target.closest('[data-viewmode]'); if (viewm) return this._setViewMode(viewm.dataset.viewmode);
     const camTab = e.target.closest('[data-camidx]'); if (camTab) return this._switchCamera(Number(camTab.dataset.camidx));
     const calDay = e.target.closest('[data-cal-day]'); if (calDay) return this._pickDay(calDay.dataset.calDay);
     const calNav = e.target.closest('[data-cal-nav]'); if (calNav) return this._calNav(Number(calNav.dataset.calNav));
-    const fopt = e.target.closest('[data-flabel]'); if (fopt) { this._filterLabel=fopt.dataset.flabel; this._renderFilter(); this._renderList(); return; }
-    const zopt = e.target.closest('[data-fzone]'); if (zopt) { this._filterZone=zopt.dataset.fzone; this._renderFilter(); this._renderList(); return; }
-    const favo = e.target.closest('[data-favonly]'); if (favo) { this._favOnly=favo.dataset.favonly==='1'; this._renderFilter(); this._renderList(); return; }
+    const fopt = e.target.closest('[data-flabel]'); if (fopt) { this._filterLabel = fopt.dataset.flabel; this._renderFilter(); this._renderList(); return; }
+    const zopt = e.target.closest('[data-fzone]'); if (zopt) { this._filterZone = zopt.dataset.fzone; this._renderFilter(); this._renderList(); return; }
+    const favo = e.target.closest('[data-favonly]'); if (favo) { this._favOnly = favo.dataset.favonly === '1'; this._renderFilter(); this._renderList(); return; }
 
-    const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl,dl.dataset.dlFile); }
+    const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl, dl.dataset.dlFile); }
     const fav = e.target.closest('[data-fav]'); if (fav) { e.stopPropagation(); return this._toggleFav(fav.dataset.fav); }
-    const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv=revMark.closest('[data-review-id]'); e.stopPropagation(); if(rv) return this._markReviewed(rv.dataset.reviewId); }
+    const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv = revMark.closest('[data-review-id]'); e.stopPropagation(); if (rv) return this._markReviewed(rv.dataset.reviewId); }
     const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._openReview(revOpen);
     const pill = e.target.closest('[data-tab]'); if (pill) return this._setTab(pill.dataset.tab);
     // A tick opens its clip where the list would: in the camera's own tile in
@@ -1936,21 +2001,21 @@ export class FrigateModernHassCard extends HTMLElement {
 
   _setTab(tab) {
     this._tab = tab;
-    this.shadowRoot.querySelectorAll('[data-tab]').forEach(p=>p.classList.toggle('active',p.dataset.tab===tab));
-    const lbl=this.shadowRoot.querySelector('#list-label');
-    if (lbl) lbl.textContent=({live:'Recent events',recordings:'Recordings',clips:'Clips',snapshot:'Snapshots',reviews:'Reviews',kept:'Kept'})[tab]||tab;
-    if (tab==='live') this._showLive();
-    if (tab==='reviews') this._loadReviews().then(()=>this._renderList());
-    if (tab==='kept') this._loadKept().then(()=>this._renderList());
+    this.shadowRoot.querySelectorAll('[data-tab]').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+    const lbl = this.shadowRoot.querySelector('#list-label');
+    if (lbl) lbl.textContent = ({ live: 'Recent events', recordings: 'Recordings', clips: 'Clips', snapshot: 'Snapshots', reviews: 'Reviews', kept: 'Kept' })[tab] || tab;
+    if (tab === 'live') this._showLive();
+    if (tab === 'reviews') this._loadReviews().then(() => this._renderList());
+    if (tab === 'kept') this._loadKept().then(() => this._renderList());
     this._renderList();
   }
 
   // ── playback ──────────────────────────────────────────────
   _allDisplayEvents() {
-    if (this._eventsMode==='all') {
-      const seen=new Set(); const all=[];
-      for (const c of this._config.cameras) { const cc=this._camCache[c.entity]; if(cc) for(const ev of (cc.events||[])) if(!seen.has(ev.id)){seen.add(ev.id);all.push(ev);} }
-      return all.sort((a,b)=>b.start_time-a.start_time);
+    if (this._eventsMode === 'all') {
+      const seen = new Set(); const all = [];
+      for (const c of this._config.cameras) { const cc = this._camCache[c.entity]; if (cc) for (const ev of (cc.events || [])) if (!seen.has(ev.id)) { seen.add(ev.id); all.push(ev); } }
+      return all.sort((a, b) => b.start_time - a.start_time);
     }
     return this._events;
   }
@@ -1994,7 +2059,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // The tile says what is playing, as the single view does beside Live.
     const label = this._gridLabel(camIdx < 0 ? 0 : camIdx, ev);
     if (isSnap) {
-      const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
+      const url = await this._signed(this._media(ev.id, 'snapshot.jpg'));
       slot.innerHTML = `
         <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
         ${label}
@@ -2013,9 +2078,9 @@ export class FrigateModernHassCard extends HTMLElement {
   }
 
   _open(id) {
-    const ev=this._allDisplayEvents().find(e=>e.id===id);
-    if(!ev) return;
-    if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
+    const ev = this._allDisplayEvents().find(e => e.id === id);
+    if (!ev) return;
+    if (this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
     this._playInfo(ev);
   }
@@ -2023,9 +2088,9 @@ export class FrigateModernHassCard extends HTMLElement {
     this._ptzClose('playing a clip');
     this._talkClose('playing a clip');
     this.shadowRoot.querySelector('#eng-wrap')?.classList.add('viewing');
-    this.shadowRoot.querySelector('#engine').style.display='none';
-    const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
-    this.shadowRoot.querySelector('#feed-top').style.display='flex';
+    this.shadowRoot.querySelector('#engine').style.display = 'none';
+    const v = this.shadowRoot.querySelector('#viewer'); v.style.display = 'flex';
+    this.shadowRoot.querySelector('#feed-top').style.display = 'flex';
     this._playInfo(null);
     this._revealPlayer(this.shadowRoot.querySelector('#eng-wrap'));
   }
@@ -2054,11 +2119,11 @@ export class FrigateModernHassCard extends HTMLElement {
     });
   }
   _showLive() {
-    this._playing=null; this._playInfo(null);
+    this._playing = null; this._playInfo(null);
     this.shadowRoot.querySelector('#eng-wrap')?.classList.remove('viewing');
-    const v=this.shadowRoot.querySelector('#viewer'); v.innerHTML=''; v.style.display='none';
-    this.shadowRoot.querySelector('#engine').style.display='block';
-    this.shadowRoot.querySelector('#feed-top').style.display='none';
+    const v = this.shadowRoot.querySelector('#viewer'); v.innerHTML = ''; v.style.display = 'none';
+    this.shadowRoot.querySelector('#engine').style.display = 'block';
+    this.shadowRoot.querySelector('#feed-top').style.display = 'none';
     this._renderStreamCtrl();
     this._revokeClipBlob();
   }
@@ -2099,7 +2164,7 @@ export class FrigateModernHassCard extends HTMLElement {
       }
     }
   }
-  _media(id,file,dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl?'?download=true':''}`; }
+  _media(id, file, dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl ? '?download=true' : ''}`; }
   // Same HLS route the Home Assistant media browser uses to play this event
   // (custom_components/frigate/media_source.py: vod/event/<id>/index.m3u8).
   _vod(id) { return `/api/frigate/${this._cc().clientId}/vod/event/${id}/index.m3u8`; }
@@ -2111,16 +2176,16 @@ export class FrigateModernHassCard extends HTMLElement {
   }
   async _resolveClipUrl(id) {
     if (this._hlsNative()) return this._signed(this._vod(id));
-    return this._loadClipBlob(await this._signed(this._media(id,'clip.mp4')));
+    return this._loadClipBlob(await this._signed(this._media(id, 'clip.mp4')));
   }
   async _showClip(ev) {
     const token = ++this._playSeq;
-    this._enter(); this._playing={id:ev.id};
+    this._enter(); this._playing = { id: ev.id };
     const viewer = this.shadowRoot.querySelector('#viewer');
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(ev.id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    viewer.innerHTML = `<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
   // A review item is one arrival, often several tracked objects long. Play the
@@ -2147,44 +2212,44 @@ export class FrigateModernHassCard extends HTMLElement {
     return shown;
   }
   async _showClipById(id) {
-    if(!id) return;
+    if (!id) return;
     const token = ++this._playSeq;
-    this._enter(); this._playing={id};
+    this._enter(); this._playing = { id };
     const viewer = this.shadowRoot.querySelector('#viewer');
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    viewer.innerHTML = `<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
   async _showSnapshot(ev) {
-    this._enter(); this._playing={id:ev.id};
-    const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
-    this.shadowRoot.querySelector('#viewer').innerHTML=`<img class="snap" src="${url}">`;
+    this._enter(); this._playing = { id: ev.id };
+    const url = await this._signed(this._media(ev.id, 'snapshot.jpg'));
+    this.shadowRoot.querySelector('#viewer').innerHTML = `<img class="snap" src="${url}">`;
   }
   _fmtDurS(s) { // format seconds → m:ss or h:mm:ss
-    const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
-    return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${m}:${String(ss).padStart(2,'0')}`;
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
   }
   async _showRecording(s, e, seekFrom, opts = {}) {
     const start = seekFrom || s;
     const token = ++this._playSeq; // cancel any in-flight load
-    this._enter(); this._playing={rec:s};
+    this._enter(); this._playing = { rec: s };
     const viewer = this.shadowRoot.querySelector('#viewer');
-    viewer.innerHTML='<div class="ld">Loading…</div>';
-    const {clientId,cam}=this._cc();
+    viewer.innerHTML = '<div class="ld">Loading…</div>';
+    const { clientId, cam } = this._cc();
     const maxChunk = 7200;
     const chunkEnd = Math.min(e, start + maxChunk);
     const clipDur = chunkEnd - start; // real clip length in seconds
     // _recUrl picks MP4 or, on Safari, HLS.
-    const url=await this._recUrl(clientId, cam, start, chunkEnd);
+    const url = await this._recUrl(clientId, cam, start, chunkEnd);
     if (this._playSeq !== token) return;
     const fromLbl = seekFrom
       ? `<div class="seek-from-lbl">▶ Playing from ${this._time(seekFrom)}</div>`
       : '';
     // No native `controls` — we show our own bar so the browser can't display
     // the wrong file duration (Frigate proxy may serve the full segment file).
-    viewer.innerHTML=`<video src="${url}" playsinline></video>${fromLbl}
+    viewer.innerHTML = `<video src="${url}" playsinline></video>${fromLbl}
       <div class="rec-dl-bar">
         <div class="rec-ctl-row">
           <button class="rec-pp-btn">⏸</button>
@@ -2197,7 +2262,7 @@ export class FrigateModernHassCard extends HTMLElement {
           <button class="rec-dl-btn">↓ Download</button>
         </div>
       </div>`;
-    const vid     = viewer.querySelector('video');
+    const vid = viewer.querySelector('video');
     // Caller-supplied way out when the recording does not play at all. Only
     // before the first frame: a stream that started and then stalled is a
     // different problem, and swapping it for a clip would hide it.
@@ -2211,14 +2276,14 @@ export class FrigateModernHassCard extends HTMLElement {
       vid.addEventListener('loadeddata', () => { started = true; clearTimeout(guard); }, { once: true });
       vid.addEventListener('error', bail, { once: true });
     }
-    const ppBtn   = viewer.querySelector('.rec-pp-btn');
+    const ppBtn = viewer.querySelector('.rec-pp-btn');
     const muteBtn = viewer.querySelector('.rec-mute-btn');
-    const ctTime  = viewer.querySelector('.rec-ctl-time');
-    const prog    = viewer.querySelector('.rec-prog');
-    const dlTime  = viewer.querySelector('.rec-dl-time');
-    const dlBtn   = viewer.querySelector('.rec-dl-btn');
+    const ctTime = viewer.querySelector('.rec-ctl-time');
+    const prog = viewer.querySelector('.rec-prog');
+    const dlTime = viewer.querySelector('.rec-dl-time');
+    const dlBtn = viewer.querySelector('.rec-dl-btn');
     if (vid) {
-      vid.addEventListener('play',  () => { if (ppBtn) ppBtn.textContent = '⏸'; });
+      vid.addEventListener('play', () => { if (ppBtn) ppBtn.textContent = '⏸'; });
       vid.addEventListener('pause', () => { if (ppBtn) ppBtn.textContent = '▶'; });
       vid.addEventListener('ended', () => { if (ppBtn) ppBtn.textContent = '▶'; });
       vid.addEventListener('timeupdate', () => {
@@ -2248,7 +2313,7 @@ export class FrigateModernHassCard extends HTMLElement {
     });
     if (prog && vid) {
       prog.addEventListener('mousedown', e => { e.stopPropagation(); prog._dragging = true; });
-      prog.addEventListener('mouseup',   () => { prog._dragging = false; });
+      prog.addEventListener('mouseup', () => { prog._dragging = false; });
       prog.addEventListener('input', () => {
         const t = +prog.value;
         vid.currentTime = t;
@@ -2309,7 +2374,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'rec-seek-wrap';
     // Helper: offset seconds → absolute wall-clock label
-    const toTime = v => this._time(rs + v, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const toTime = v => this._time(rs + v, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     wrap.innerHTML = `<div class="rec-seek-row">
       <input type="range" class="rec-seek-bar" min="0" max="${d}" value="0" step="1">
       <span class="rec-seek-lbl">▶ ${this._time(rs)}</span>
@@ -2328,7 +2393,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // Play from start immediately so user sees something while positioning the bar
     this._showRecording(rs, re);
   }
-  async _signed(path) { try { const r=await this._hass.callWS({type:'auth/sign_path',path,expires:3600}); return r?.path||path; } catch(_) { return path; } }
+  async _signed(path) { try { const r = await this._hass.callWS({ type: 'auth/sign_path', path, expires: 3600 }); return r?.path || path; } catch (_) { return path; } }
   // Recursively find a <video>, piercing open shadow roots (e.g. ha-camera-stream
   // renders its <video> inside its own shadow DOM, invisible to plain querySelector).
   _findVideo(root, depth) {
@@ -2339,7 +2404,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const all = root.querySelectorAll ? root.querySelectorAll('*') : [];
     for (const node of all) {
       if (node.shadowRoot) {
-        const v = this._findVideo(node.shadowRoot, (depth||0) + 1);
+        const v = this._findVideo(node.shadowRoot, (depth || 0) + 1);
         if (v) return v;
       }
     }
@@ -2348,7 +2413,7 @@ export class FrigateModernHassCard extends HTMLElement {
   _exitFullscreen() {
     if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => {}); }
+    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => { }); }
   }
   _fullscreen(el) {
     if (!el) return;
@@ -2367,41 +2432,41 @@ export class FrigateModernHassCard extends HTMLElement {
       if (vid && typeof vid.webkitEnterFullscreen === 'function') { vid.webkitEnterFullscreen(); return; }
     }
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
+    if (req) { const p = req.call(el); if (p?.catch) p.catch(() => { }); }
   }
-  _goNow() { this._zoomStack=[]; this._pickGroup(null); const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
-  _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
+  _goNow() { this._zoomStack = []; this._pickGroup(null); const now = Math.floor(Date.now() / 1000); this._winEnd = now; this._winStart = now - this._config.window_hours * 3600; this._exhausted = false; this._calMonth = null; this._loadWindow(true); }
+  _download(id, file) { const a = document.createElement('a'); a.href = this._media(id, file, true); a.download = `${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
   // ── favorites (realtime) ──────────────────────────────────
   _toggleFav(id) {
-    const ev=this._events.find(e=>e.id===id); if(!ev) return;
-    const next=!ev.retain_indefinitely;
-    ev.retain_indefinitely=next;
-    if (next) { if(!this._kept.find(e=>e.id===id)) this._kept=[{...ev},...this._kept]; }
-    else { this._kept=this._kept.filter(e=>e.id!==id); }
-    const ent=this._activeCam?.entity; if(ent&&this._camCache[ent]) this._camCache[ent].kept=this._kept;
+    const ev = this._events.find(e => e.id === id); if (!ev) return;
+    const next = !ev.retain_indefinitely;
+    ev.retain_indefinitely = next;
+    if (next) { if (!this._kept.find(e => e.id === id)) this._kept = [{ ...ev }, ...this._kept]; }
+    else { this._kept = this._kept.filter(e => e.id !== id); }
+    const ent = this._activeCam?.entity; if (ent && this._camCache[ent]) this._camCache[ent].kept = this._kept;
     this._renderList(); this._renderLatest();
-    const {clientId}=this._cc();
-    this._hass.callWS({type:'frigate/event/retain',instance_id:clientId,event_id:id,retain:next})
-      .catch(err=>{
-        ev.retain_indefinitely=!next;
-        if(next) this._kept=this._kept.filter(e=>e.id!==id);
-        else if(!this._kept.find(e=>e.id===id)) this._kept=[{...ev},...this._kept];
+    const { clientId } = this._cc();
+    this._hass.callWS({ type: 'frigate/event/retain', instance_id: clientId, event_id: id, retain: next })
+      .catch(err => {
+        ev.retain_indefinitely = !next;
+        if (next) this._kept = this._kept.filter(e => e.id !== id);
+        else if (!this._kept.find(e => e.id === id)) this._kept = [{ ...ev }, ...this._kept];
         this._renderList();
-        console.warn('[Frigate] retain failed',err);
+        console.warn('[Frigate] retain failed', err);
         this._toast('Could not save — check Frigate port config.');
       });
   }
   async _markAll() {
-    const ids=this._reviews.filter(r=>!r.has_been_reviewed).map(r=>r.id); if(!ids.length) return;
-    const {clientId}=this._cc();
-    try { await this._hass.callWS({type:'frigate/reviews/viewed',instance_id:clientId,ids,viewed:true}); this._reviews.forEach(r=>r.has_been_reviewed=true); this._renderList(); }
-    catch(e) { console.warn(e); }
+    const ids = this._reviews.filter(r => !r.has_been_reviewed).map(r => r.id); if (!ids.length) return;
+    const { clientId } = this._cc();
+    try { await this._hass.callWS({ type: 'frigate/reviews/viewed', instance_id: clientId, ids, viewed: true }); this._reviews.forEach(r => r.has_been_reviewed = true); this._renderList(); }
+    catch (e) { console.warn(e); }
   }
   async _markReviewed(id) {
-    const {clientId}=this._cc();
-    try { await this._hass.callWS({type:'frigate/reviews/viewed',instance_id:clientId,ids:[id],viewed:true}); const r=this._reviews.find(x=>x.id===id); if(r) r.has_been_reviewed=true; this._renderList(); }
-    catch(e) { console.warn(e); }
+    const { clientId } = this._cc();
+    try { await this._hass.callWS({ type: 'frigate/reviews/viewed', instance_id: clientId, ids: [id], viewed: true }); const r = this._reviews.find(x => x.id === id); if (r) r.has_been_reviewed = true; this._renderList(); }
+    catch (e) { console.warn(e); }
   }
 
   // ── browse / filter ───────────────────────────────────────
@@ -2409,149 +2474,149 @@ export class FrigateModernHassCard extends HTMLElement {
     const card = this.shadowRoot.querySelector('.card');
     const isWide = card?.classList.contains('wide');
     const isGrid = card?.classList.contains('grid-mode');
-    const b=this.shadowRoot.querySelector('#browse'); const c=this.shadowRoot.querySelector('#chev2');
+    const b = this.shadowRoot.querySelector('#browse'); const c = this.shadowRoot.querySelector('#chev2');
     // Wide: always open. Narrow grid: open by default but collapsable via toggle.
     const forceOpen = isWide;
-    if (b) b.style.display=(forceOpen||this._browseOpen)?'block':'none';
-    if (c) c.style.transform=(forceOpen||this._browseOpen)?'rotate(180deg)':'';
+    if (b) b.style.display = (forceOpen || this._browseOpen) ? 'block' : 'none';
+    if (c) c.style.transform = (forceOpen || this._browseOpen) ? 'rotate(180deg)' : '';
   }
-  _toggleBrowse() { this._browseOpen=!this._browseOpen; this._applyBrowse(); }
-  _toast(msg,ms=3500) {
-    const t=this.shadowRoot.querySelector('#toast'); if(!t) return;
-    t.textContent=msg; t.style.display='block';
-    clearTimeout(this._toastT); this._toastT=setTimeout(()=>{ t.style.display='none'; },ms);
+  _toggleBrowse() { this._browseOpen = !this._browseOpen; this._applyBrowse(); }
+  _toast(msg, ms = 3500) {
+    const t = this.shadowRoot.querySelector('#toast'); if (!t) return;
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(this._toastT); this._toastT = setTimeout(() => { t.style.display = 'none'; }, ms);
   }
-  _toggleFilter() { const p=this.shadowRoot.querySelector('#filter-panel'); const open=p.style.display==='none'; this.shadowRoot.querySelector('#cal-panel').style.display='none'; p.style.display=open?'block':'none'; if(open) this._renderFilter(); }
-  _toggleCal() { const p=this.shadowRoot.querySelector('#cal-panel'); const open=p.style.display==='none'; this.shadowRoot.querySelector('#filter-panel').style.display='none'; p.style.display=open?'block':'none'; if(open){ this._calMonth=this._calMonth||new Date(this._winEnd*1000); this._renderCal(); } }
+  _toggleFilter() { const p = this.shadowRoot.querySelector('#filter-panel'); const open = p.style.display === 'none'; this.shadowRoot.querySelector('#cal-panel').style.display = 'none'; p.style.display = open ? 'block' : 'none'; if (open) this._renderFilter(); }
+  _toggleCal() { const p = this.shadowRoot.querySelector('#cal-panel'); const open = p.style.display === 'none'; this.shadowRoot.querySelector('#filter-panel').style.display = 'none'; p.style.display = open ? 'block' : 'none'; if (open) { this._calMonth = this._calMonth || new Date(this._winEnd * 1000); this._renderCal(); } }
 
   // ── calendar ──────────────────────────────────────────────
-  _calNav(d) { const m=this._calMonth||new Date(); m.setMonth(m.getMonth()+d); this._calMonth=new Date(m); this._renderCal(); }
+  _calNav(d) { const m = this._calMonth || new Date(); m.setMonth(m.getMonth() + d); this._calMonth = new Date(m); this._renderCal(); }
   _pickDay(ds) {
-    const [y,mo,da]=ds.split('-').map(Number);
-    this._winStart=Math.floor(new Date(y,mo-1,da,0,0,0).getTime()/1000);
-    this._winEnd=Math.min(Math.floor(new Date(y,mo-1,da,23,59,59).getTime()/1000),Math.floor(Date.now()/1000));
-    this.shadowRoot.querySelector('#cal-panel').style.display='none'; this._loadWindow(true);
+    const [y, mo, da] = ds.split('-').map(Number);
+    this._winStart = Math.floor(new Date(y, mo - 1, da, 0, 0, 0).getTime() / 1000);
+    this._winEnd = Math.min(Math.floor(new Date(y, mo - 1, da, 23, 59, 59).getTime() / 1000), Math.floor(Date.now() / 1000));
+    this.shadowRoot.querySelector('#cal-panel').style.display = 'none'; this._loadWindow(true);
   }
   _renderCal() {
-    const p=this.shadowRoot.querySelector('#cal-panel'); if(!p) return;
-    const m=this._calMonth||new Date(); const y=m.getFullYear(),mo=m.getMonth();
-    const first=new Date(y,mo,1); const startDow=(first.getDay()+6)%7; const days=new Date(y,mo+1,0).getDate();
-    let cells=''; for(let i=0;i<startDow;i++) cells+='<span></span>';
-    for(let d=1;d<=days;d++){
-      const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      cells+=`<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds)?'<i class="cdot"></i>':''}</button>`;
+    const p = this.shadowRoot.querySelector('#cal-panel'); if (!p) return;
+    const m = this._calMonth || new Date(); const y = m.getFullYear(), mo = m.getMonth();
+    const first = new Date(y, mo, 1); const startDow = (first.getDay() + 6) % 7; const days = new Date(y, mo + 1, 0).getDate();
+    let cells = ''; for (let i = 0; i < startDow; i++) cells += '<span></span>';
+    for (let d = 1; d <= days; d++) {
+      const ds = `${y}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells += `<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds) ? '<i class="cdot"></i>' : ''}</button>`;
     }
-    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
+    p.innerHTML = `<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0], { month: 'long', year: 'numeric' })}</b><button data-cal-nav="1">›</button></div>
       <div class="cal-dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="cal-grid">${cells}</div>`;
   }
   _renderFilter() {
-    const p=this.shadowRoot.querySelector('#filter-panel'); if(!p) return;
-    const lbls=['all',...this._labels()]; const zones=['all',...this._zones()];
-    const chip=(val,cur,attr)=>`<button class="chip ${val===cur?'on':''}" data-${attr}="${val}">${val==='all'?'All':cap(val)}</button>`;
-    p.innerHTML=`<div class="frow"><span class="frow-l">Label</span>${lbls.map(l=>chip(l,this._filterLabel,'flabel')).join('')}</div>
-      <div class="frow"><span class="frow-l">Zone</span>${zones.map(z=>chip(z,this._filterZone,'fzone')).join('')}</div>
+    const p = this.shadowRoot.querySelector('#filter-panel'); if (!p) return;
+    const lbls = ['all', ...this._labels()]; const zones = ['all', ...this._zones()];
+    const chip = (val, cur, attr) => `<button class="chip ${val === cur ? 'on' : ''}" data-${attr}="${val}">${val === 'all' ? 'All' : cap(val)}</button>`;
+    p.innerHTML = `<div class="frow"><span class="frow-l">Label</span>${lbls.map(l => chip(l, this._filterLabel, 'flabel')).join('')}</div>
+      <div class="frow"><span class="frow-l">Zone</span>${zones.map(z => chip(z, this._filterZone, 'fzone')).join('')}</div>
       <div class="frow"><span class="frow-l">Show</span>
-        <button class="chip ${!this._favOnly?'on':''}" data-favonly="0">All</button>
-        <button class="chip ${this._favOnly?'on':''}" data-favonly="1">★ Favorites</button></div>`;
+        <button class="chip ${!this._favOnly ? 'on' : ''}" data-favonly="0">All</button>
+        <button class="chip ${this._favOnly ? 'on' : ''}" data-favonly="1">★ Favorites</button></div>`;
   }
 
   // ── scrub / scroll ────────────────────────────────────────
   _wireScrub() {
-    const track=this.shadowRoot.querySelector('#tl-track'); if(!track) return;
-    let drag=false,sx=0,sws=0,swe=0;
+    const track = this.shadowRoot.querySelector('#tl-track'); if (!track) return;
+    let drag = false, sx = 0, sws = 0, swe = 0;
     // Pointing at an event lights up its camera's tile straight away, without
     // waiting for the browser's tooltip.
     // Only for a real mouse: on a phone a tap also fires mouseover, but nothing
     // ever un-hovers, so the tile stayed framed.
-    track.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return;const t=e.target.closest('[data-cis]');this._hlTiles(t?t.dataset.cis:'');});
-    track.addEventListener('pointerleave',()=>this._hlTiles(''));
-    const dn=x=>{drag=true;sx=x;sws=this._winStart;swe=this._winEnd;track.classList.add('grab');};
-    const mv=x=>{if(!drag)return;const w=track.clientWidth||1;const sp=swe-sws;const sh=Math.round((x-sx)/w*sp);let ns=sws-sh,ne=swe-sh;const now=Math.floor(Date.now()/1000);if(ne>now){const a=ne-now;ne-=a;ns-=a;}this._winStart=ns;this._winEnd=ne;this._renderTimeline();this._renderRange();};
-    const up=()=>{if(!drag)return;drag=false;track.classList.remove('grab');this._loadWindow(true);};
-    track.addEventListener('mousedown',e=>{e.preventDefault();dn(e.clientX);});
-    window.addEventListener('mousemove',e=>mv(e.clientX));
-    window.addEventListener('mouseup',up);
+    track.addEventListener('pointerover', e => { if (e.pointerType !== 'mouse') return; const t = e.target.closest('[data-cis]'); this._hlTiles(t ? t.dataset.cis : ''); });
+    track.addEventListener('pointerleave', () => this._hlTiles(''));
+    const dn = x => { drag = true; sx = x; sws = this._winStart; swe = this._winEnd; track.classList.add('grab'); };
+    const mv = x => { if (!drag) return; const w = track.clientWidth || 1; const sp = swe - sws; const sh = Math.round((x - sx) / w * sp); let ns = sws - sh, ne = swe - sh; const now = Math.floor(Date.now() / 1000); if (ne > now) { const a = ne - now; ne -= a; ns -= a; } this._winStart = ns; this._winEnd = ne; this._renderTimeline(); this._renderRange(); };
+    const up = () => { if (!drag) return; drag = false; track.classList.remove('grab'); this._loadWindow(true); };
+    track.addEventListener('mousedown', e => { e.preventDefault(); dn(e.clientX); });
+    window.addEventListener('mousemove', e => mv(e.clientX));
+    window.addEventListener('mouseup', up);
     // Pinch to zoom the window, the touch counterpart of the wheel below. One
     // finger pans, two zoom, and the moment the second finger lands the pan is
     // abandoned so the window does not jump. The time under the fingers stays
     // put, which is what makes a pinch feel like it is zooming and not sliding.
-    const gap=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-    let pinch=null;
-    const settle=()=>{clearTimeout(this._wt);this._wt=setTimeout(()=>this._loadWindow(true),350);};
-    track.addEventListener('touchstart',e=>{
-      if(e.touches.length===2){
-        drag=false;track.classList.remove('grab');
-        const rect=track.getBoundingClientRect();
-        const midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
-        const frac=Math.min(1,Math.max(0,(midX-rect.left)/rect.width));
-        const span=this._winEnd-this._winStart;
-        pinch={d0:gap(e.touches[0],e.touches[1])||1,span0:span,anchor:this._winStart+span*frac,frac};
-      } else { pinch=null; dn(e.touches[0].clientX); }
-    },{passive:true});
-    track.addEventListener('touchmove',e=>{
-      if(pinch&&e.touches.length===2){
+    const gap = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    let pinch = null;
+    const settle = () => { clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350); };
+    track.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        drag = false; track.classList.remove('grab');
+        const rect = track.getBoundingClientRect();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const frac = Math.min(1, Math.max(0, (midX - rect.left) / rect.width));
+        const span = this._winEnd - this._winStart;
+        pinch = { d0: gap(e.touches[0], e.touches[1]) || 1, span0: span, anchor: this._winStart + span * frac, frac };
+      } else { pinch = null; dn(e.touches[0].clientX); }
+    }, { passive: true });
+    track.addEventListener('touchmove', e => {
+      if (pinch && e.touches.length === 2) {
         e.preventDefault(); // otherwise the browser zooms the page instead
-        const d=gap(e.touches[0],e.touches[1])||1;
-        let nsp=Math.round(pinch.span0*(pinch.d0/d));
-        nsp=Math.max(300,Math.min(14*DAY,nsp)); // same limits as the wheel
-        let ns=Math.round(pinch.anchor-nsp*pinch.frac),ne=ns+nsp;
-        const now=Math.floor(Date.now()/1000);
-        if(ne>now){const a=ne-now;ne-=a;ns-=a;}
-        this._winStart=ns;this._winEnd=ne;this._exhausted=false;
-        this._renderTimeline();this._renderRange();
-      } else if(!pinch) mv(e.touches[0].clientX);
-    },{passive:false});
-    track.addEventListener('touchend',e=>{
-      if(pinch){ if(e.touches.length<2){pinch=null;settle();} return; }
+        const d = gap(e.touches[0], e.touches[1]) || 1;
+        let nsp = Math.round(pinch.span0 * (pinch.d0 / d));
+        nsp = Math.max(300, Math.min(14 * DAY, nsp)); // same limits as the wheel
+        let ns = Math.round(pinch.anchor - nsp * pinch.frac), ne = ns + nsp;
+        const now = Math.floor(Date.now() / 1000);
+        if (ne > now) { const a = ne - now; ne -= a; ns -= a; }
+        this._winStart = ns; this._winEnd = ne; this._exhausted = false;
+        this._renderTimeline(); this._renderRange();
+      } else if (!pinch) mv(e.touches[0].clientX);
+    }, { passive: false });
+    track.addEventListener('touchend', e => {
+      if (pinch) { if (e.touches.length < 2) { pinch = null; settle(); } return; }
       up();
     });
-    track.addEventListener('wheel',e=>{
+    track.addEventListener('wheel', e => {
       e.preventDefault();
-      const rect=track.getBoundingClientRect();const frac=Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
-      const span=this._winEnd-this._winStart;const now=Math.floor(Date.now()/1000);
-      const horiz=e.shiftKey||Math.abs(e.deltaX)>Math.abs(e.deltaY);
-      let ns,ne;
-      if(horiz){const delta=e.deltaX||e.deltaY;const shift=Math.round(delta/rect.width*span);ns=this._winStart+shift;ne=this._winEnd+shift;}
-      else{const anch=this._winStart+span*frac;const f=e.deltaY>0?1.25:0.8;let nsp=Math.round(span*f);nsp=Math.max(300,Math.min(14*DAY,nsp));ns=Math.round(anch-nsp*frac);ne=ns+nsp;}
-      if(ne>now){const a=ne-now;ne-=a;ns-=a;}
-      this._winStart=ns;this._winEnd=ne;this._exhausted=false;
-      this._renderTimeline();this._renderRange();
+      const rect = track.getBoundingClientRect(); const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const span = this._winEnd - this._winStart; const now = Math.floor(Date.now() / 1000);
+      const horiz = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      let ns, ne;
+      if (horiz) { const delta = e.deltaX || e.deltaY; const shift = Math.round(delta / rect.width * span); ns = this._winStart + shift; ne = this._winEnd + shift; }
+      else { const anch = this._winStart + span * frac; const f = e.deltaY > 0 ? 1.25 : 0.8; let nsp = Math.round(span * f); nsp = Math.max(300, Math.min(14 * DAY, nsp)); ns = Math.round(anch - nsp * frac); ne = ns + nsp; }
+      if (ne > now) { const a = ne - now; ne -= a; ns -= a; }
+      this._winStart = ns; this._winEnd = ne; this._exhausted = false;
+      this._renderTimeline(); this._renderRange();
       settle();
-    },{passive:false});
+    }, { passive: false });
   }
   _wireScroll() {
-    const list=this.shadowRoot.querySelector('#list'); if(!list) return;
-    list.addEventListener('scroll',()=>{if(this._loading||this._exhausted)return;if(list.scrollTop+list.clientHeight>=list.scrollHeight-40)this._loadOlder();});
+    const list = this.shadowRoot.querySelector('#list'); if (!list) return;
+    list.addEventListener('scroll', () => { if (this._loading || this._exhausted) return; if (list.scrollTop + list.clientHeight >= list.scrollHeight - 40) this._loadOlder(); });
   }
   async _loadOlder() {
-    const before=this._events.length?Math.floor(Math.min(...this._events.map(e=>e.start_time))):this._winStart;
-    this._loading=true; const {clientId,cam}=this._cc();
-    try{
-      const older=await this._ws({type:'frigate/events/get',instance_id:clientId,cameras:[cam],before,limit:50});
-      const arr=Array.isArray(older)?older.filter(o=>!this._events.some(e=>e.id===o.id)):[];
-      if(!arr.length)this._exhausted=true; else{this._events=this._events.concat(arr);this._winStart=Math.min(this._winStart,...arr.map(e=>e.start_time));}
-    }catch(_){}
-    this._loading=false; this._renderList();this._renderTimeline();this._renderRange();
+    const before = this._events.length ? Math.floor(Math.min(...this._events.map(e => e.start_time))) : this._winStart;
+    this._loading = true; const { clientId, cam } = this._cc();
+    try {
+      const older = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], before, limit: 50 });
+      const arr = Array.isArray(older) ? older.filter(o => !this._events.some(e => e.id === o.id)) : [];
+      if (!arr.length) this._exhausted = true; else { this._events = this._events.concat(arr); this._winStart = Math.min(this._winStart, ...arr.map(e => e.start_time)); }
+    } catch (_) { }
+    this._loading = false; this._renderList(); this._renderTimeline(); this._renderRange();
   }
 
   // ── render ────────────────────────────────────────────────
   _syncStatus() {
-    const ent=this._hass?.states?.[this._activeCam?.entity]; if(!ent) return;
-    const dot=this._$('#on-dot'),lbl=this._$('#on-lbl'),title=this._$('#info-title');
-    const ok=ent.state!=='unavailable';
-    if(dot) dot.style.color=ok?'#4ade80':'#ef4444';
-    if(lbl) lbl.textContent=ok?'Online':'Offline';
-    if(title) {
-      const c=this._activeCam; const n=this._config.title||(this._config.cameras.length>1?cap(camDisplayName(c)):'Camera');
-      title.textContent=n;
+    const ent = this._hass?.states?.[this._activeCam?.entity]; if (!ent) return;
+    const dot = this._$('#on-dot'), lbl = this._$('#on-lbl'), title = this._$('#info-title');
+    const ok = ent.state !== 'unavailable';
+    if (dot) dot.style.color = ok ? '#4ade80' : '#ef4444';
+    if (lbl) lbl.textContent = ok ? 'Online' : 'Offline';
+    if (title) {
+      const c = this._activeCam; const n = this._config.title || (this._config.cameras.length > 1 ? cap(camDisplayName(c)) : 'Camera');
+      title.textContent = n;
     }
   }
   // Cached querySelector — avoids repeated DOM lookups on every render tick
   _$(sel) { return this._domCache[sel] || (this._domCache[sel] = this.shadowRoot.querySelector(sel)); }
 
-  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
-  _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
+  _renderAll() { this._renderStats(); this._renderLatest(); this._renderTimeline(); this._renderLegend(); this._renderRange(); this._renderList(); this._syncStatus(); this._renderCamSwitcher(); if (this._cardWidth >= 560) this._syncColHeight(); }
+  _renderStats() { const el = this._$('#ev-count'); if (el) el.textContent = String(this._allDisplayEvents().length); }
   _zoomBack() {
     this._pickGroup(null);
     const prev = (this._zoomStack || []).pop(); if (!prev) return;
@@ -2560,41 +2625,41 @@ export class FrigateModernHassCard extends HTMLElement {
     clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350);
   }
   _renderRange() {
-    const back=this.shadowRoot.querySelector('#zoom-back');
+    const back = this.shadowRoot.querySelector('#zoom-back');
     if (back) back.hidden = !(this._zoomStack && this._zoomStack.length);
-    const el=this._$('#tl-range'); if(!el) return;
-    const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
+    const el = this._$('#tl-range'); if (!el) return;
+    const span = this._winEnd - this._winStart; const fmt = t => this._time(t);
     // On a phone today's date is left out: it is implied, and without it the
     // range and the toolbar fit on one line.
-    const narrow=this.shadowRoot.querySelector('.card')?.classList.contains('narrow');
-    const today=new Date(this._winEnd*1000).toDateString()===new Date().toDateString();
-    const day=narrow&&today?'':`${this._day(this._winEnd)} · `;
-    if(span<=DAY+60) el.textContent=`${day}${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
-    else el.textContent=`${this._day(this._winStart)} – ${this._isNowWindow()?'now':this._day(this._winEnd)}`;
+    const narrow = this.shadowRoot.querySelector('.card')?.classList.contains('narrow');
+    const today = new Date(this._winEnd * 1000).toDateString() === new Date().toDateString();
+    const day = narrow && today ? '' : `${this._day(this._winEnd)} · `;
+    if (span <= DAY + 60) el.textContent = `${day}${fmt(this._winStart)}–${this._isNowWindow() ? 'now' : fmt(this._winEnd)}`;
+    else el.textContent = `${this._day(this._winStart)} – ${this._isNowWindow() ? 'now' : this._day(this._winEnd)}`;
   }
   _renderLegend() {
-    const el=this._$('#legend'); if(!el) return;
-    const labels=this._labels();
+    const el = this._$('#legend'); if (!el) return;
+    const labels = this._labels();
     // The legend explains the colours actually on the timeline: cameras in grid
     // view, object labels on a single camera.
     let html;
-    if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+    if (this._eventsMode === 'all') {
+      html = this._config.cameras.map((c, i) => `<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
-      html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
+      html = labels.map(l => `<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
-    html+=`<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
-    el.innerHTML=html;
+    html += `<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
+    el.innerHTML = html;
   }
 
   // ── latest event (always visible, compact, no toggle) ─────
   _renderLatest() {
-    const row=this._$('#latest-row'); if(!row) return;
-    const events=this._allDisplayEvents();
-    if(!events.length||this._viewMode==='grid'){ row.style.display='none'; return; }
-    row.style.display='block';
-    row.innerHTML=`<div class="latest-label"><span class="section-label">Latest event</span></div>
-      <div class="latest-body">${this._eventCardHTML(events[0],false,true)}</div>`;
+    const row = this._$('#latest-row'); if (!row) return;
+    const events = this._allDisplayEvents();
+    if (!events.length || this._viewMode === 'grid') { row.style.display = 'none'; return; }
+    row.style.display = 'block';
+    row.innerHTML = `<div class="latest-label"><span class="section-label">Latest event</span></div>
+      <div class="latest-body">${this._eventCardHTML(events[0], false, true)}</div>`;
   }
 
   // Locale and clock for every time and date the card shows. Follows the user's
@@ -2620,40 +2685,40 @@ export class FrigateModernHassCard extends HTMLElement {
   _day(ts, opts = { day: '2-digit', month: 'short' }) {
     return new Date(ts * 1000).toLocaleDateString(this._timeFmt()[0], opts);
   }
-  _dur(ev) { return Math.max(1,Math.round((ev.end_time||Date.now()/1000)-ev.start_time)); }
-  _zones() { const z=new Set(); this._allDisplayEvents().forEach(e=>(e.zones||[]).forEach(x=>z.add(x))); return [...z]; }
-  _labels() { const l=new Set(); this._allDisplayEvents().forEach(e=>e.label&&l.add(e.label)); return [...l]; }
+  _dur(ev) { return Math.max(1, Math.round((ev.end_time || Date.now() / 1000) - ev.start_time)); }
+  _zones() { const z = new Set(); this._allDisplayEvents().forEach(e => (e.zones || []).forEach(x => z.add(x))); return [...z]; }
+  _labels() { const l = new Set(); this._allDisplayEvents().forEach(e => e.label && l.add(e.label)); return [...l]; }
   _filtered() {
-    let list=this._allDisplayEvents();
-    if(this._tab==='clips') list=list.filter(e=>e.has_clip);
-    else if(this._tab==='snapshot') list=list.filter(e=>e.has_snapshot);
-    if(this._filterLabel!=='all') list=list.filter(e=>e.label===this._filterLabel);
-    if(this._filterZone!=='all') list=list.filter(e=>(e.zones||[]).includes(this._filterZone));
-    if(this._favOnly) list=list.filter(e=>e.retain_indefinitely);
+    let list = this._allDisplayEvents();
+    if (this._tab === 'clips') list = list.filter(e => e.has_clip);
+    else if (this._tab === 'snapshot') list = list.filter(e => e.has_snapshot);
+    if (this._filterLabel !== 'all') list = list.filter(e => e.label === this._filterLabel);
+    if (this._filterZone !== 'all') list = list.filter(e => (e.zones || []).includes(this._filterZone));
+    if (this._favOnly) list = list.filter(e => e.retain_indefinitely);
     return list;
   }
   _mergeRecs(recs) {
-    if(!recs.length) return [];
-    const segs=[...recs].sort((a,b)=>a.start_time-b.start_time); const out=[]; let cur={...segs[0]};
-    for(let i=1;i<segs.length;i++){const s=segs[i];const ce=cur.end_time||cur.start_time;if(s.start_time-ce<=60){cur.end_time=Math.max(ce,s.end_time||s.start_time);cur.events=(cur.events||0)+(s.events||0);}else{out.push(cur);cur={...s};}}
+    if (!recs.length) return [];
+    const segs = [...recs].sort((a, b) => a.start_time - b.start_time); const out = []; let cur = { ...segs[0] };
+    for (let i = 1; i < segs.length; i++) { const s = segs[i]; const ce = cur.end_time || cur.start_time; if (s.start_time - ce <= 60) { cur.end_time = Math.max(ce, s.end_time || s.start_time); cur.events = (cur.events || 0) + (s.events || 0); } else { out.push(cur); cur = { ...s }; } }
     out.push(cur); return out;
   }
 
   _renderTimeline() {
-    const track=this._$('#tl-track'),labels=this._$('#tl-labels'); if(!track) return;
-    const s=this._winStart,e=this._winEnd,span=Math.max(1,e-s); let html='';
+    const track = this._$('#tl-track'), labels = this._$('#tl-labels'); if (!track) return;
+    const s = this._winStart, e = this._winEnd, span = Math.max(1, e - s); let html = '';
 
-    if (this._eventsMode==='all') {
+    if (this._eventsMode === 'all') {
       // One band for "something was recording here". Per camera bands at full
       // height lay on top of each other and the last camera hid the rest, so the
       // legend promised colours nobody could see. Telling cameras apart is the
       // ticks' job in this view.
-      const all=[];
-      this._config.cameras.forEach(c=>{ const cc=this._camCache[c.entity]; if(cc) all.push(...(cc.recordings||[])); });
+      const all = [];
+      this._config.cameras.forEach(c => { const cc = this._camCache[c.entity]; if (cc) all.push(...(cc.recordings || [])); });
       // Neutral, so it cannot be mistaken for the first camera's colour.
-      for(const r of this._mergeRecs(all)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
+      for (const r of this._mergeRecs(all)) { const a = r.start_time, b = r.end_time || e; if (b < s || a > e) continue; const left = (Math.max(a, s) - s) / span * 100; const w = Math.max(0.3, (Math.min(b, e) - Math.max(a, s)) / span * 100); html += `<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`; }
     } else {
-      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
+      for (const r of this._mergeRecs(this._recordings)) { const a = r.start_time, b = r.end_time || e; if (b < s || a > e) continue; const left = (Math.max(a, s) - s) / span * 100; const w = Math.max(0.3, (Math.min(b, e) - Math.max(a, s)) / span * 100); html += `<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`; }
     }
     // With every camera on one timeline a tick is coloured by camera, so you can
     // see where something happened; what it was is in the tooltip. On a single
@@ -2690,113 +2755,113 @@ export class FrigateModernHassCard extends HTMLElement {
       // kind of object on a single camera. Otherwise neutral.
       const labels = new Set(g.evs.map(ev => ev.label));
       const col = all ? (cis.length === 1 ? this._camColor(cis[0]) : REC_GROUP)
-                      : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
+        : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
       const names = all ? ' · ' + cis.map(i => cap(camDisplayName(this._config.cameras[i]))).join(', ') : '';
       html += `<div class="t-grp" data-grp-s="${a}" data-grp-e="${b}" data-grp-ids="${g.evs.map(ev => ev.id).join(',')}"${hl} style="left:${mid}%;background:${col}" title="${g.evs.length} events ${this._time(a)}–${this._time(b)}${names}">${g.evs.length}</div>`;
     }
-    const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
-    html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;
-    track.innerHTML=html;
-    if(labels){let l='';for(let i=0;i<5;i++){const ts=s+span*i/4;l+=`<span>${i===4&&this._isNowWindow()?'now':this._time(ts)}</span>`;}labels.innerHTML=l;}
+    const nowPct = (Math.min(Math.floor(Date.now() / 1000), e) - s) / span * 100;
+    html += `<div class="tl-now" style="left:${Math.max(0, Math.min(100, nowPct))}%"></div>`;
+    track.innerHTML = html;
+    if (labels) { let l = ''; for (let i = 0; i < 5; i++) { const ts = s + span * i / 4; l += `<span>${i === 4 && this._isNowWindow() ? 'now' : this._time(ts)}</span>`; } labels.innerHTML = l; }
   }
 
-  _favIcon(ev) { return ev.retain_indefinitely?`<button class="ico fav on" data-fav="${ev.id}">${ICONS.star}</button>`:`<button class="ico fav" data-fav="${ev.id}">${ICONS.starO}</button>`; }
+  _favIcon(ev) { return ev.retain_indefinitely ? `<button class="ico fav on" data-fav="${ev.id}">${ICONS.star}</button>` : `<button class="ico fav" data-fav="${ev.id}">${ICONS.starO}</button>`; }
 
-  _eventCardHTML(ev,expanded,compact=false) {
-    const col=labelColor(ev.label); const score=ev.top_score!=null?Math.round(ev.top_score*100)+'%':'';
-    const zone=ev.zones&&ev.zones.length?ev.zones[0]:''; const subl=ev.sub_label?`<span class="subl">${ev.sub_label}</span>`:'';
-    const desc=expanded&&ev.data?.description?`<div class="desc">${ev.data.description}</div>`:'';
-    const thumb=ev.has_snapshot||ev.has_clip?`<img src="${this._media(ev.id,'thumbnail.jpg')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tph" style="display:none">${ICONS.person}</div>`:`<div class="tph">${ICONS.person}</div>`;
-    const badge=ev.has_clip?'<span class="bc">clip</span>':(ev.has_snapshot?'<span class="bs">snap</span>':'');
-    const dlClip=ev.has_clip?`<button class="ico" data-dl="${ev.id}" data-dl-file="clip.mp4" title="Download clip">${ICONS.download}</button>`:'';
-    const dlSnap=ev.has_snapshot?`<button class="ico" data-dl="${ev.id}" data-dl-file="snapshot.jpg" title="Download snapshot">${ICONS.snapshot}</button>`:'';
+  _eventCardHTML(ev, expanded, compact = false) {
+    const col = labelColor(ev.label); const score = ev.top_score != null ? Math.round(ev.top_score * 100) + '%' : '';
+    const zone = ev.zones && ev.zones.length ? ev.zones[0] : ''; const subl = ev.sub_label ? `<span class="subl">${ev.sub_label}</span>` : '';
+    const desc = expanded && ev.data?.description ? `<div class="desc">${ev.data.description}</div>` : '';
+    const thumb = ev.has_snapshot || ev.has_clip ? `<img src="${this._media(ev.id, 'thumbnail.jpg')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tph" style="display:none">${ICONS.person}</div>` : `<div class="tph">${ICONS.person}</div>`;
+    const badge = ev.has_clip ? '<span class="bc">clip</span>' : (ev.has_snapshot ? '<span class="bs">snap</span>' : '');
+    const dlClip = ev.has_clip ? `<button class="ico" data-dl="${ev.id}" data-dl-file="clip.mp4" title="Download clip">${ICONS.download}</button>` : '';
+    const dlSnap = ev.has_snapshot ? `<button class="ico" data-dl="${ev.id}" data-dl-file="snapshot.jpg" title="Download snapshot">${ICONS.snapshot}</button>` : '';
     // show camera name in multi-cam all-events mode
-    const camLabel=(this._eventsMode==='all'&&this._config.cameras.length>1)?`<span class="cam-badge">${(ev.camera||'').replace(/_/g,' ')}</span>`:'';
+    const camLabel = (this._eventsMode === 'all' && this._config.cameras.length > 1) ? `<span class="cam-badge">${(ev.camera || '').replace(/_/g, ' ')}</span>` : '';
     // compact: wrap everything in a tighter layout, actions horizontal
-    return `<div class="ec${compact?' compact':''}" data-ev="${ev.id}">
+    return `<div class="ec${compact ? ' compact' : ''}" data-ev="${ev.id}">
       <div class="et">${thumb}<div class="ed">${this._dur(ev)}s</div></div>
       <div class="ei">
-        <div class="etop"><span class="tb" style="background:${col}33;color:${col}">${cap(ev.label)}</span>${subl}${badge}${camLabel}${score?`<span class="esc">${score}</span>`:''}</div>
-        <div class="em"><span>${ICONS.clock}${this._time(ev.start_time)}</span>${zone?`<span>${ICONS.pin}${zone}</span>`:''}</div>
+        <div class="etop"><span class="tb" style="background:${col}33;color:${col}">${cap(ev.label)}</span>${subl}${badge}${camLabel}${score ? `<span class="esc">${score}</span>` : ''}</div>
+        <div class="em"><span>${ICONS.clock}${this._time(ev.start_time)}</span>${zone ? `<span>${ICONS.pin}${zone}</span>` : ''}</div>
         ${desc}
       </div>
-      <div class="eact${compact?' h':''}">${this._favIcon(ev)}${dlClip}${dlSnap}</div>
+      <div class="eact${compact ? ' h' : ''}">${this._favIcon(ev)}${dlClip}${dlSnap}</div>
     </div>`;
   }
 
   _renderList() {
-    const list=this._$('#list'); if(!list) return;
-    if(this._tab==='recordings') {
+    const list = this._$('#list'); if (!list) return;
+    if (this._tab === 'recordings') {
       // Don't blow away the recording list (and seek bar) while the user is watching a recording
       const viewerActive = this._$('#viewer')?.style.display !== 'none';
       if (viewerActive && this._playing?.rec != null) return;
       return this._renderRecordings(list);
     }
-    if(this._tab==='reviews') return this._renderReviews(list);
-    if(this._tab==='kept'){
-      if(!this._kept.length){list.innerHTML=`<div class="empty">No kept events<br><span style="opacity:.6">star an event to keep it</span></div>`;return;}
-      list.innerHTML=this._kept.map(ev=>this._eventCardHTML(ev,false)).join(''); return;
+    if (this._tab === 'reviews') return this._renderReviews(list);
+    if (this._tab === 'kept') {
+      if (!this._kept.length) { list.innerHTML = `<div class="empty">No kept events<br><span style="opacity:.6">star an event to keep it</span></div>`; return; }
+      list.innerHTML = this._kept.map(ev => this._eventCardHTML(ev, false)).join(''); return;
     }
-    const events=this._filtered();
-    if(!events.length){list.innerHTML=`<div class="empty">No events in this window</div>`;return;}
-    list.innerHTML=events.map(ev=>this._eventCardHTML(ev,false)).join('')+(this._exhausted?'<div class="end">— end —</div>':'<div class="more">scroll for older…</div>');
+    const events = this._filtered();
+    if (!events.length) { list.innerHTML = `<div class="empty">No events in this window</div>`; return; }
+    list.innerHTML = events.map(ev => this._eventCardHTML(ev, false)).join('') + (this._exhausted ? '<div class="end">— end —</div>' : '<div class="more">scroll for older…</div>');
   }
   _renderRecordings(list) {
     // In grid view the list covers every camera, each row naming its camera.
     // It used to show only whichever camera happened to be active, unnamed.
-    const all=this._eventsMode==='all';
-    let recs=[];
-    if (all) this._config.cameras.forEach((c,ci)=>{ const cc=this._camCache[c.entity]; if(cc) for(const r of this._mergeRecs(cc.recordings||[])) recs.push({...r,ci}); });
-    else recs=this._mergeRecs(this._recordings);
-    recs.sort((a,b)=>b.start_time-a.start_time);
-    if(!recs.length){list.innerHTML='<div class="empty">No recordings in this window</div>';return;}
-    list.innerHTML=recs.map(r=>{
-      const rs=Math.floor(r.start_time), re=Math.floor(r.end_time||Date.now()/1000);
-      const d=Math.max(1,re-rs); const mm=Math.floor(d/60),ss=d%60;
-      const dur=`${mm?mm+'m ':''}${ss}s`;
+    const all = this._eventsMode === 'all';
+    let recs = [];
+    if (all) this._config.cameras.forEach((c, ci) => { const cc = this._camCache[c.entity]; if (cc) for (const r of this._mergeRecs(cc.recordings || [])) recs.push({ ...r, ci }); });
+    else recs = this._mergeRecs(this._recordings);
+    recs.sort((a, b) => b.start_time - a.start_time);
+    if (!recs.length) { list.innerHTML = '<div class="empty">No recordings in this window</div>'; return; }
+    list.innerHTML = recs.map(r => {
+      const rs = Math.floor(r.start_time), re = Math.floor(r.end_time || Date.now() / 1000);
+      const d = Math.max(1, re - rs); const mm = Math.floor(d / 60), ss = d % 60;
+      const dur = `${mm ? mm + 'm ' : ''}${ss}s`;
       const seekHint = d > 300 && !all ? ' <span class="seek-hint">· click to seek</span>' : '';
       const cam = all ? `<i class="cam-dot-lbl" style="background:${this._camColor(r.ci)}"></i>${cap(camDisplayName(this._config.cameras[r.ci]))} · ` : '';
-      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all?` data-ci="${r.ci}"`:''}>
+      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all ? ` data-ci="${r.ci}"` : ''}>
         <div class="ric">${ICONS.recordings}</div>
         <div class="rinf">
-          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
-          <div class="rsub">${dur}${r.events?' · '+r.events+' ev':''}${seekHint}</div>
+          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time || Date.now() / 1000)}</div>
+          <div class="rsub">${dur}${r.events ? ' · ' + r.events + ' ev' : ''}${seekHint}</div>
         </div>
         <div class="rp">▶</div>
       </div>`;
     }).join('');
   }
   _renderReviews(list) {
-    if(!this._reviews.length){list.innerHTML='<div class="empty">No reviews in this window</div>';return;}
-    const allRevs=[...this._reviews].sort((a,b)=>b.start_time-a.start_time);
-    const unrev=allRevs.filter(r=>!r.has_been_reviewed).length;
-    const revs=this._showReviewed ? allRevs : allRevs.filter(r=>!r.has_been_reviewed);
-    const toggleLbl=this._showReviewed?'Hide reviewed':'Show reviewed';
-    const head=`<div class="rev-head"><span>${unrev} to review</span><div style="display:flex;gap:5px;align-items:center">${unrev?`<button class="chip on" data-mark-all>Mark all</button>`:''}<button class="chip" data-toggle-reviewed>${toggleLbl}</button></div></div>`;
-    if(!revs.length){list.innerHTML=head+'<div class="empty">Nothing to review ✓</div>';return;}
-    list.innerHTML=head+revs.map(r=>{
-      const sev=r.severity==='alert'?'alert':'detection';
-      const objs=(r.data?.objects||[]).map(cap).join(', ');
-      const title=r.data?.metadata?.title||objs||cap(r.severity);
+    if (!this._reviews.length) { list.innerHTML = '<div class="empty">No reviews in this window</div>'; return; }
+    const allRevs = [...this._reviews].sort((a, b) => b.start_time - a.start_time);
+    const unrev = allRevs.filter(r => !r.has_been_reviewed).length;
+    const revs = this._showReviewed ? allRevs : allRevs.filter(r => !r.has_been_reviewed);
+    const toggleLbl = this._showReviewed ? 'Hide reviewed' : 'Show reviewed';
+    const head = `<div class="rev-head"><span>${unrev} to review</span><div style="display:flex;gap:5px;align-items:center">${unrev ? `<button class="chip on" data-mark-all>Mark all</button>` : ''}<button class="chip" data-toggle-reviewed>${toggleLbl}</button></div></div>`;
+    if (!revs.length) { list.innerHTML = head + '<div class="empty">Nothing to review ✓</div>'; return; }
+    list.innerHTML = head + revs.map(r => {
+      const sev = r.severity === 'alert' ? 'alert' : 'detection';
+      const objs = (r.data?.objects || []).map(cap).join(', ');
+      const title = r.data?.metadata?.title || objs || cap(r.severity);
       // Frigate does not return detections in time order, so [0] was usually an
       // object from halfway through the period. Event ids start with their epoch,
       // which parseFloat reads, so sorting on that gives the earliest.
-      const dets=[...(r.data?.detections||[])].sort((a,b)=>parseFloat(a)-parseFloat(b));
-      const firstDet=dets[0]||'';
-      const reviewed=r.has_been_reviewed;
-      const thumb=firstDet?`<div class="rev-th"><img src="${this._media(firstDet,'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`:'';
-      return`<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time||''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':' · tap'}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
+      const dets = [...(r.data?.detections || [])].sort((a, b) => parseFloat(a) - parseFloat(b));
+      const firstDet = dets[0] || '';
+      const reviewed = r.has_been_reviewed;
+      const thumb = firstDet ? `<div class="rev-th"><img src="${this._media(firstDet, 'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>` : '';
+      return `<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time || ''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed ? ' · ✓' : ' · tap'}</div></div>${reviewed ? '' : `<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
     }).join('');
   }
 
   // ── clip download range ───────────────────────────────────
   async _downloadRecRange(dlStart, dlEnd) {
-    const {clientId, cam} = this._cc();
-    const base = `/api/frigate/${clientId}/recording/${cam}/start/${dlStart}/end/${Math.min(dlEnd, dlStart+7200)}`;
+    const { clientId, cam } = this._cc();
+    const base = `/api/frigate/${clientId}/recording/${cam}/start/${dlStart}/end/${Math.min(dlEnd, dlStart + 7200)}`;
     const signed = await this._signed(base);
     const url = signed + (signed.includes('?') ? '&' : '?') + 'download=true';
     const a = document.createElement('a');
-    a.href = url; a.download = `${cam}_${this._time(dlStart).replace(/:/g,'-')}.mp4`;
-    document.body.appendChild(a); a.click(); a.remove();
+    a.href = url; a.download = `${cam}_${this._time(dlStart).replace(/:/g, '-')}.mp4`;
+      document.body.appendChild(a); a.click(); a.remove();
   }
 }
