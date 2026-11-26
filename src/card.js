@@ -42,6 +42,7 @@ export class FrigateModernHassCard extends HTMLElement {
   static getStubConfig() { return { camera_entity: 'camera.front_door' }; }
 
   setConfig(config) {
+    const previousPtzDefaultMode = this._config?.ptz_default_mode;
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
       cameras = config.cameras.map(c => ({ entity: c.entity, name: c.name || null, span: normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false, buttons: Array.isArray(c.buttons) ? c.buttons.slice(0, 4).filter(b => b && b.label && b.action).map(b => ({ label: String(b.label).slice(0, 40), action: b.action })) : [] }));
@@ -92,6 +93,11 @@ export class FrigateModernHassCard extends HTMLElement {
       // ONVIF. On by default since nothing shows for a camera without it; off
       // for a wall display nobody should be steering cameras from.
       ptz: config.ptz !== false,
+      ptz_default_mode: ['open-both', 'desktop-only'].includes(config.ptz_default_mode) ? config.ptz_default_mode : 'closed-all',
+      ptz_position: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(config.ptz_position) ? config.ptz_position : 'right',
+      ptz_mobile_overlay: config.ptz_mobile_overlay === true,
+      ptz_mobile_scale: Number.isFinite(Number(config.ptz_mobile_scale)) && Number(config.ptz_mobile_scale) > 0
+        ? Number(config.ptz_mobile_scale) : 0.6,
       // Talking through the camera, for cameras whose go2rtc stream takes audio
       // back. On by default since nothing shows without it.
       talk: config.talk !== false,
@@ -113,10 +119,15 @@ export class FrigateModernHassCard extends HTMLElement {
       // the choice to the player (it tries WebRTC first).
       go2rtc_mode: ['auto', 'webrtc', 'mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
+    if (previousPtzDefaultMode !== undefined && previousPtzDefaultMode !== this._config.ptz_default_mode) {
+      this._ptzDefaultApplied = false;
+      this._ptzOpen = false;
+    }
     this._browseOpen = this._config.browse_expanded;
     this._eventsCollapsed = this._config.events_collapsed;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
     this._renderShell();
+    if (this._started) this._renderPtz();
   }
 
   set hass(hass) {
@@ -1259,6 +1270,7 @@ export class FrigateModernHassCard extends HTMLElement {
   _renderPtz() {
     const q = sel => this.shadowRoot.querySelector(sel);
     const caps = this._ptzCaps();
+    this._applyPtzDefault(caps);
     const open = !!(caps && this._ptzOpen);
     if (!open) this._ptzOpen = false;
     q('.card')?.classList.toggle('ptz-open', open);
@@ -1278,6 +1290,14 @@ export class FrigateModernHassCard extends HTMLElement {
     }
     this._placePtz();
   }
+  _applyPtzDefault(caps) {
+    if (this._ptzDefaultApplied || !caps || !this._cardWidth) return;
+    this._ptzDefaultApplied = true;
+    const mode = this._config?.ptz_default_mode || 'closed-all';
+    // Keep PTZ defaults aligned with the card's shared phone breakpoint.
+    const mobile = this._cardWidth < PHONE_PX;
+    this._ptzOpen = mode === 'open-both' || (mode === 'desktop-only' && !mobile);
+  }
   // On a large picture the pad sits on it; on a small one, under it. What
   // counts is the picture, not the card: a wide card with the events panel open
   // still has a small picture, and a pad on top of that covers most of it.
@@ -1287,10 +1307,16 @@ export class FrigateModernHassCard extends HTMLElement {
     const pad = q('#ptz-pad'), wrap = q('#eng-wrap'), pre = q('#ptz-presets'), card = q('.card');
     if (!pad || !wrap || !pre || !card) return;
     const w = wrap.clientWidth;
+    const cardWidth = this._cardWidth || this.offsetWidth;
+    const mobileFloating = !!this._config?.ptz_mobile_overlay && cardWidth > 0 && cardWidth < PHONE_PX;
+    const position = this._config?.ptz_position || 'right';
+    card.classList.remove('ptz-pos-top-left', 'ptz-pos-top-right', 'ptz-pos-bottom-left', 'ptz-pos-bottom-right');
+    if (position !== 'right') card.classList.add(`ptz-pos-${position}`);
     // In fullscreen only the picture is on screen, so the pad has to be on it.
     const inFs = (this.shadowRoot.fullscreenElement || this.shadowRoot.webkitFullscreenElement) === wrap;
-    const below = !inFs && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
+    const below = !inFs && !mobileFloating && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
     card.classList.toggle('ptz-below', below);
+    pad.style.scale = mobileFloating && !below ? String(this._config.ptz_mobile_scale) : '';
     if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
     else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
   }
@@ -1505,6 +1531,7 @@ export class FrigateModernHassCard extends HTMLElement {
       this._renderAll();
     }
     this._renderStreamCtrl();
+    this._renderPtz();
     this._renderCamSwitcher();
     this._applyBrowse();
     this.shadowRoot.querySelectorAll('[data-viewmode]').forEach(p =>
@@ -1527,6 +1554,7 @@ export class FrigateModernHassCard extends HTMLElement {
     }
     this._activeCamIdx = idx;
     this._writeUrlState();
+    this._renderPtz();
     const newEnt = this._activeCam?.entity;
     if (!this._camCache[newEnt]) this._camCache[newEnt] = mkCamState();
     // Start the stream before waiting on anything else. The picture is what the
@@ -1930,6 +1958,7 @@ export class FrigateModernHassCard extends HTMLElement {
       // Below the stacking line the PTZ controls go under the picture.
       card.classList.toggle('narrow', w < PHONE_PX);
       this._placePtz();
+      this._renderPtz();
       this._applyBrowse();
       this._applyEventsCollapsed();
       // Events are grouped by on-screen distance, which a new width changes,

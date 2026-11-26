@@ -209,6 +209,20 @@ export class FrigateModernHassCardEditor extends HTMLElement {
          ${this._radio('default_view', 'grid', 'Grid (all cameras)', defaultView === 'grid')}
        </div>`
     ) + this._sec(
+      'PTZ options',
+      'Choose where the PTZ pad appears and whether it opens when a supported camera is ready. On small pictures, the pad stays below the video so it does not cover the view.',
+      `<label class="fld"><span class="field-label">Controls position</span>
+         <select name="ptz_position" id="ptz_position" class="tf ptz-select">
+           ${[['right', 'Right center'], ['top-left', 'Top left'], ['top-right', 'Top right'], ['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_position || 'right') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="fld"><span class="field-label">Open by default</span>
+         <select name="ptz_default_mode" id="ptz_default_mode" class="tf ptz-select">
+           ${[['closed-all', 'Closed by default on all devices'], ['open-both', 'Open by default on both'], ['desktop-only', 'Closed by default on mobile']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_default_mode || 'closed-all') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="chk-lbl"><input type="checkbox" name="ptz_mobile_overlay" id="ptz_mobile_overlay" ${cfg.ptz_mobile_overlay === true ? 'checked' : ''}> Float PTZ controls over the video on mobile</label>`
+    ) + this._sec(
       'Grid layout',
       'The numbers match the tile numbers on the Cameras tab. A layout sets the columns and tile sizes together.',
       `<div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
@@ -342,6 +356,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .tf,.ce,.cn,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:13px;padding:8px;
         background:var(--ed-field);color:var(--primary-text-color,#111);width:100%;}
       .tf.narrow{max-width:140px;}
+      .ptz-select{max-width:300px;}
       .tf:focus,.ce:focus,.cn:focus,.cs:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
       .fld .hint{display:block;margin-top:4px;}
 
@@ -713,6 +728,11 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     c.theme = this.querySelector('input[name="theme"]:checked')?.value || 'dark';
     // default view
     c.default_view = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
+    const ptzPosition = this.querySelector('#ptz_position')?.value || 'right';
+    if (ptzPosition === 'right') delete c.ptz_position; else c.ptz_position = ptzPosition;
+    const ptzDefaultMode = this.querySelector('#ptz_default_mode')?.value || 'closed-all';
+    if (ptzDefaultMode === 'closed-all') delete c.ptz_default_mode; else c.ptz_default_mode = ptzDefaultMode;
+    c.ptz_mobile_overlay = this.querySelector('#ptz_mobile_overlay')?.checked === true;
     const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
     if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
