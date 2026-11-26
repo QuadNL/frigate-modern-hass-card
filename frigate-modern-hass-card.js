@@ -391,6 +391,16 @@ const STYLES = `
      use the same .tool style as the ones beside it. */
   .stream-ctrl-bar{display:flex;align-items:center;gap:4px;}
   .info-title{font-size:14px;font-weight:700;color:var(--c-text);} .info-sub{font-size:11px;color:var(--c-text3);margin-top:1px;}
+  .info-sub-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-right:25px;justify-content: space-between;}
+  .info-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .info-actions-label{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-text3);}
+  .info-action{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--c-border2);border-radius:6px;background:var(--c-bg-panel);color:var(--c-text);font-size:11px;font-weight:650;line-height:1.2;cursor:pointer;}
+  .info-action:hover,.info-action:focus-visible{border-color:var(--c-acc-bdr);background:var(--c-acc-bg);outline:none;}
+  .button-state{display:flex;width:15px;height:15px;--mdc-icon-size:15px;flex:none;align-items:center}
+  .button-state.on{color:#4ade80;}
+  .button-state.off{color:var(--c-text2);opacity:.95;}
+  .button-state.unknown{color:#f59e0b;}
+  .more-menu ha-icon.button-state{width:20px;height:20px;--mdc-icon-size:20px;}
   .stats{display:flex;gap:16px;justify-self:end;} .stat{display:flex;flex-direction:column;align-items:flex-end;}
   .sv{font-size:14px;font-weight:700;color:#93c5fd;} .sl{font-size:10px;color:var(--c-text4);text-transform:uppercase;letter-spacing:.06em;}
 
@@ -1386,6 +1396,10 @@ class FrigateModernHassCard extends HTMLElement {
       }
     }
     this._syncStatus();
+    if (this._renderInfoActions() && this._moreOpen) {
+      const menu = this.shadowRoot.querySelector('#more-menu');
+      if (menu) menu.innerHTML = this._moreItems();
+    }
     if (this._config.theme === 'auto') this._applyCardStyle(); // re-evaluate HA dark mode
   }
 
@@ -2186,7 +2200,11 @@ class FrigateModernHassCard extends HTMLElement {
     const tail = [
       `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
       `<button role="menuitem" data-more="record" class="mi-rec">${ICONS.record}<span>${recording ? 'Stop recording' : 'Start recording'}</span>${tag}</button>`,
-      ...(this._activeCam?.buttons || []).map((b, i) => `<button role="menuitem" data-more-button="${i}">${ICONS.record}<span>${String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</span></button>`),
+      ...(this._activeCam?.buttons || []).map((b, i) => {
+        const status = this._buttonState(b.action);
+        const label = String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        return `<button role="menuitem" data-more-button="${i}"${status ? ` aria-label="${label}, ${status === 'unknown' ? 'status unavailable or mixed' : status}"` : ''}>${status ? this._buttonStateIcon(status) : ICONS.record}<span>${label}</span></button>`;
+      }),
     ];
     return [...head, ...(head.length ? ['<hr>'] : []), ...tail].join('');
   }
@@ -2642,7 +2660,7 @@ class FrigateModernHassCard extends HTMLElement {
     // Actions on the camera on screen sit behind one button: PTZ, snapshot,
     // recording. Separate buttons no longer fitted beside the time range on a
     // phone, and each item only appears when the camera can do it.
-    const more = !inGrid && this._activeCam
+    const more = this._activeCam
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
       + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
@@ -2651,7 +2669,52 @@ class FrigateModernHassCard extends HTMLElement {
     // opens from the card's right edge.
     const slot = this.shadowRoot.querySelector('#more-slot');
     if (slot) slot.innerHTML = more;
+    this._renderInfoActions();
     this._applyEventsCollapsed();
+  }
+  _buttonTargets(action, out = new Set()) {
+    if (Array.isArray(action)) { action.forEach(step => this._buttonTargets(step, out)); return out; }
+    if (!action || typeof action !== 'object') return out;
+    const target = action.target || {};
+    const data = action.data || action.service_data || {};
+    for (const value of [target.entity_id, action.entity_id, data.entity_id]) {
+      for (const id of Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []) {
+        const entity = String(id).trim();
+        if (/^(light|switch)\.[\w-]+$/.test(entity)) out.add(entity);
+      }
+    }
+    return out;
+  }
+  _buttonState(action) {
+    const targets = [...this._buttonTargets(action)];
+    if (!targets.length) return '';
+    const states = targets.map(id => this._hass?.states?.[id]?.state);
+    if (states.every(state => state === 'on')) return 'on';
+    if (states.every(state => state === 'off')) return 'off';
+    return 'unknown';
+  }
+  _buttonStateIcon(status) {
+    if (!status) return '';
+    const icon = status === 'on' ? 'mdi:toggle-switch' : 'mdi:toggle-switch-off-outline';
+    return `<ha-icon class="button-state ${status}" icon="${icon}" aria-hidden="true"></ha-icon>`;
+  }
+  _renderInfoActions() {
+    const actions = this.shadowRoot.querySelector('#info-actions');
+    if (!actions) return false;
+    const buttons = this._activeCam?.buttons || [];
+    const signature = buttons.map(button => `${button.label}:${this._buttonState(button.action)}`).join('|');
+    if (signature === this._infoActionsSignature) return false;
+    this._infoActionsSignature = signature;
+    const rows = buttons.map((button, i) => {
+      const label = String(button.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+      const status = this._buttonState(button.action);
+      const indicator = this._buttonStateIcon(status);
+      const stateLabel = status ? `, ${status === 'unknown' ? 'status unavailable or mixed' : status}` : '';
+      return `<button type="button" class="info-action" data-more-button="${i}" title="${label}${stateLabel}" aria-label="${label}${stateLabel}">${indicator}${label}</button>`;
+    }).join('');
+    actions.innerHTML = buttons.length ? `${rows}` : '';
+    actions.hidden = !buttons.length;
+    return true;
   }
   _applyEventsCollapsed() {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
@@ -3003,7 +3066,7 @@ class FrigateModernHassCard extends HTMLElement {
             </div>
             <!-- info: sits below timeline in col-left -->
             <div class="info-row">
-              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub">${sub}</div></div>
+              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub-row"><div class="info-sub">${sub}</div><div class="info-actions" id="info-actions" hidden></div></div></div>
               <div class="stats">
                 <div class="stat"><div class="sv" id="ev-count">—</div><div class="sl">Events</div></div>
                 <div class="stat"><div class="sv" id="on-dot" style="color:#4ade80">●</div><div class="sl" id="on-lbl">Online</div></div>

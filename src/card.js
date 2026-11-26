@@ -138,6 +138,10 @@ export class FrigateModernHassCard extends HTMLElement {
       }
     }
     this._syncStatus();
+    if (this._renderInfoActions() && this._moreOpen) {
+      const menu = this.shadowRoot.querySelector('#more-menu');
+      if (menu) menu.innerHTML = this._moreItems();
+    }
     if (this._config.theme === 'auto') this._applyCardStyle(); // re-evaluate HA dark mode
   }
 
@@ -938,7 +942,11 @@ export class FrigateModernHassCard extends HTMLElement {
     const tail = [
       `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
       `<button role="menuitem" data-more="record" class="mi-rec">${ICONS.record}<span>${recording ? 'Stop recording' : 'Start recording'}</span>${tag}</button>`,
-      ...(this._activeCam?.buttons || []).map((b, i) => `<button role="menuitem" data-more-button="${i}">${ICONS.record}<span>${String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</span></button>`),
+      ...(this._activeCam?.buttons || []).map((b, i) => {
+        const status = this._buttonState(b.action);
+        const label = String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        return `<button role="menuitem" data-more-button="${i}"${status ? ` aria-label="${label}, ${status === 'unknown' ? 'status unavailable or mixed' : status}"` : ''}>${status ? this._buttonStateIcon(status) : ICONS.record}<span>${label}</span></button>`;
+      }),
     ];
     return [...head, ...(head.length ? ['<hr>'] : []), ...tail].join('');
   }
@@ -1394,7 +1402,7 @@ export class FrigateModernHassCard extends HTMLElement {
     // Actions on the camera on screen sit behind one button: PTZ, snapshot,
     // recording. Separate buttons no longer fitted beside the time range on a
     // phone, and each item only appears when the camera can do it.
-    const more = !inGrid && this._activeCam
+    const more = this._activeCam
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
       + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
@@ -1403,7 +1411,52 @@ export class FrigateModernHassCard extends HTMLElement {
     // opens from the card's right edge.
     const slot = this.shadowRoot.querySelector('#more-slot');
     if (slot) slot.innerHTML = more;
+    this._renderInfoActions();
     this._applyEventsCollapsed();
+  }
+  _buttonTargets(action, out = new Set()) {
+    if (Array.isArray(action)) { action.forEach(step => this._buttonTargets(step, out)); return out; }
+    if (!action || typeof action !== 'object') return out;
+    const target = action.target || {};
+    const data = action.data || action.service_data || {};
+    for (const value of [target.entity_id, action.entity_id, data.entity_id]) {
+      for (const id of Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []) {
+        const entity = String(id).trim();
+        if (/^(light|switch)\.[\w-]+$/.test(entity)) out.add(entity);
+      }
+    }
+    return out;
+  }
+  _buttonState(action) {
+    const targets = [...this._buttonTargets(action)];
+    if (!targets.length) return '';
+    const states = targets.map(id => this._hass?.states?.[id]?.state);
+    if (states.every(state => state === 'on')) return 'on';
+    if (states.every(state => state === 'off')) return 'off';
+    return 'unknown';
+  }
+  _buttonStateIcon(status) {
+    if (!status) return '';
+    const icon = status === 'on' ? 'mdi:toggle-switch' : 'mdi:toggle-switch-off-outline';
+    return `<ha-icon class="button-state ${status}" icon="${icon}" aria-hidden="true"></ha-icon>`;
+  }
+  _renderInfoActions() {
+    const actions = this.shadowRoot.querySelector('#info-actions');
+    if (!actions) return false;
+    const buttons = this._activeCam?.buttons || [];
+    const signature = buttons.map(button => `${button.label}:${this._buttonState(button.action)}`).join('|');
+    if (signature === this._infoActionsSignature) return false;
+    this._infoActionsSignature = signature;
+    const rows = buttons.map((button, i) => {
+      const label = String(button.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+      const status = this._buttonState(button.action);
+      const indicator = this._buttonStateIcon(status);
+      const stateLabel = status ? `, ${status === 'unknown' ? 'status unavailable or mixed' : status}` : '';
+      return `<button type="button" class="info-action" data-more-button="${i}" title="${label}${stateLabel}" aria-label="${label}${stateLabel}">${indicator}${label}</button>`;
+    }).join('');
+    actions.innerHTML = buttons.length ? `${rows}` : '';
+    actions.hidden = !buttons.length;
+    return true;
   }
   _applyEventsCollapsed() {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
@@ -1755,7 +1808,7 @@ export class FrigateModernHassCard extends HTMLElement {
             </div>
             <!-- info: sits below timeline in col-left -->
             <div class="info-row">
-              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub">${sub}</div></div>
+              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub-row"><div class="info-sub">${sub}</div><div class="info-actions" id="info-actions" hidden></div></div></div>
               <div class="stats">
                 <div class="stat"><div class="sv" id="ev-count">—</div><div class="sl">Events</div></div>
                 <div class="stat"><div class="sv" id="on-dot" style="color:#4ade80">●</div><div class="sl" id="on-lbl">Online</div></div>

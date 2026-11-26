@@ -250,6 +250,16 @@ export const STYLES = `
      use the same .tool style as the ones beside it. */
   .stream-ctrl-bar{display:flex;align-items:center;gap:4px;}
   .info-title{font-size:14px;font-weight:700;color:var(--c-text);} .info-sub{font-size:11px;color:var(--c-text3);margin-top:1px;}
+  .info-sub-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-right:25px;justify-content: space-between;}
+  .info-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .info-actions-label{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-text3);}
+  .info-action{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--c-border2);border-radius:6px;background:var(--c-bg-panel);color:var(--c-text);font-size:11px;font-weight:650;line-height:1.2;cursor:pointer;}
+  .info-action:hover,.info-action:focus-visible{border-color:var(--c-acc-bdr);background:var(--c-acc-bg);outline:none;}
+  .button-state{display:flex;width:15px;height:15px;--mdc-icon-size:15px;flex:none;align-items:center}
+  .button-state.on{color:#4ade80;}
+  .button-state.off{color:var(--c-text2);opacity:.95;}
+  .button-state.unknown{color:#f59e0b;}
+  .more-menu ha-icon.button-state{width:20px;height:20px;--mdc-icon-size:20px;}
   .stats{display:flex;gap:16px;justify-self:end;} .stat{display:flex;flex-direction:column;align-items:flex-end;}
   .sv{font-size:14px;font-weight:700;color:#93c5fd;} .sl{font-size:10px;color:var(--c-text4);text-transform:uppercase;letter-spacing:.06em;}
 
