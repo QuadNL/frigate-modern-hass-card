@@ -391,6 +391,16 @@ const STYLES = `
      use the same .tool style as the ones beside it. */
   .stream-ctrl-bar{display:flex;align-items:center;gap:4px;}
   .info-title{font-size:14px;font-weight:700;color:var(--c-text);} .info-sub{font-size:11px;color:var(--c-text3);margin-top:1px;}
+  .info-sub-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-right:25px;justify-content: space-between;}
+  .info-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .info-actions-label{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--c-text3);}
+  .info-action{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--c-border2);border-radius:6px;background:var(--c-bg-panel);color:var(--c-text);font-size:11px;font-weight:650;line-height:1.2;cursor:pointer;}
+  .info-action:hover,.info-action:focus-visible{border-color:var(--c-acc-bdr);background:var(--c-acc-bg);outline:none;}
+  .button-state{display:flex;width:15px;height:15px;--mdc-icon-size:15px;flex:none;align-items:center}
+  .button-state.on{color:#4ade80;}
+  .button-state.off{color:var(--c-text2);opacity:.95;}
+  .button-state.unknown{color:#f59e0b;}
+  .more-menu ha-icon.button-state{width:20px;height:20px;--mdc-icon-size:20px;}
   .stats{display:flex;gap:16px;justify-self:end;} .stat{display:flex;flex-direction:column;align-items:flex-end;}
   .sv{font-size:14px;font-weight:700;color:#93c5fd;} .sl{font-size:10px;color:var(--c-text4);text-transform:uppercase;letter-spacing:.06em;}
 
@@ -1256,7 +1266,7 @@ if (!customElements.get('frigate-go2rtc-player')) customElements.define('frigate
 class FrigateModernHassCard extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode:'open' });
+    this.attachShadow({ mode: 'open' });
     this._hass = null; this._config = null; this._started = false;
     this._activeCamIdx = 0;
     this._urlViewMode = null;
@@ -1286,15 +1296,15 @@ class FrigateModernHassCard extends HTMLElement {
     this._domCache = {}; // querySelector result cache — cleared on re-render
   }
 
-  static getConfigElement() { return document.createElement(CARD_TAG+'-editor'); }
-  static getStubConfig() { return { camera_entity:'camera.front_door' }; }
+  static getConfigElement() { return document.createElement(CARD_TAG + '-editor'); }
+  static getStubConfig() { return { camera_entity: 'camera.front_door' }; }
 
   setConfig(config) {
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
-      cameras = config.cameras.map(c => ({ entity:c.entity, name:c.name||null, span:normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false }));
+      cameras = config.cameras.map(c => ({ entity: c.entity, name: c.name || null, span: normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false, buttons: Array.isArray(c.buttons) ? c.buttons.slice(0, 4).filter(b => b && b.label && b.action).map(b => ({ label: String(b.label).slice(0, 40), action: b.action })) : [] }));
     else if (config.camera_entity)
-      cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
+      cameras = [{ entity: config.camera_entity, name: config.title || null, span: normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
 
     this._urlId = this._slugUrlId(config.url_id || config.title);
@@ -1310,7 +1320,7 @@ class FrigateModernHassCard extends HTMLElement {
       window_hours: config.window_hours || 6,
       // 'auto' follows the 12/24 hour choice in the user's Home Assistant
       // profile; '12h' and '24h' override it for this card.
-      time_format: ['12h','24h'].includes(config.time_format) ? config.time_format : 'auto',
+      time_format: ['12h', '24h'].includes(config.time_format) ? config.time_format : 'auto',
       refresh_seconds: Math.max(15, config.refresh_seconds || 45),
       browse_expanded: config.browse_expanded === true,
       rotate_seconds: config.rotate_seconds ?? 0,
@@ -1318,7 +1328,7 @@ class FrigateModernHassCard extends HTMLElement {
       default_view: config.default_view === 'grid' ? 'grid' : 'single',
       hidden_tabs: Array.isArray(config.hidden_tabs) ? config.hidden_tabs : [],
       stream_height: config.stream_height ? Number(config.stream_height) : null,
-      theme: ['light','dark','auto'].includes(config.theme) ? config.theme : 'dark',
+      theme: ['light', 'dark', 'auto'].includes(config.theme) ? config.theme : 'dark',
       accent_color: config.accent_color || null,
       bg_color: config.bg_color || null,
       // Live view source. 'go2rtc' streams via Frigate's built-in go2rtc
@@ -1359,7 +1369,7 @@ class FrigateModernHassCard extends HTMLElement {
       // forever while MSE quietly carries the stream anyway. 'webrtc' is there
       // for local setups that want the lowest possible latency; 'auto' leaves
       // the choice to the player (it tries WebRTC first).
-      go2rtc_mode: ['auto','webrtc','mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
+      go2rtc_mode: ['auto', 'webrtc', 'mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
     this._browseOpen = this._config.browse_expanded;
     this._eventsCollapsed = this._config.events_collapsed;
@@ -1373,7 +1383,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (!this._started) { this._started = true; this._start(); return; }
     // keep active stream in sync
     if (this._engine) {
-      try { this._engine.hass = hass; } catch(_) {}
+      try { this._engine.hass = hass; } catch (_) { }
       // Only update stateObj when entity state actually changes (e.g. offline→online).
       // Resetting stateObj on every hass update restarts the stream and resets muted state.
       const ent = this._activeCam?.entity;
@@ -1381,11 +1391,15 @@ class FrigateModernHassCard extends HTMLElement {
       if (ent && newState !== this._lastEngineState) {
         this._lastEngineState = newState;
         if ('stateObj' in this._engine) {
-          try { this._engine.stateObj = this._hlsStateObj(ent); } catch(_) {}
+          try { this._engine.stateObj = this._hlsStateObj(ent); } catch (_) { }
         }
       }
     }
     this._syncStatus();
+    if (this._renderInfoActions() && this._moreOpen) {
+      const menu = this.shadowRoot.querySelector('#more-menu');
+      if (menu) menu.innerHTML = this._moreItems();
+    }
     if (this._config.theme === 'auto') this._applyCardStyle(); // re-evaluate HA dark mode
   }
 
@@ -1422,7 +1436,7 @@ class FrigateModernHassCard extends HTMLElement {
     this._resumeAtNow = this._started && this._isNowWindow();
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
-    if (this._unsub) { try { this._unsub.then(u=>u&&u()); } catch(_) {} this._unsub=null; }
+    if (this._unsub) { try { this._unsub.then(u => u && u()); } catch (_) { } this._unsub = null; }
     if (this._ro) this._ro.disconnect();
     this._revokeClipBlob();
     this._teardownGo2rtc();
@@ -1432,7 +1446,7 @@ class FrigateModernHassCard extends HTMLElement {
   // ── init ─────────────────────────────────────────────────
   _startRefresh() {
     clearInterval(this._refresh);
-    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+    this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds * 1000);
   }
   _slugUrlId(value) {
     return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
@@ -1515,8 +1529,8 @@ class FrigateModernHassCard extends HTMLElement {
     // enormous on a wide dashboard.
     this._setupResizeObserver();
     await this._discoverAll();
-    const now = Math.floor(Date.now()/1000);
-    this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
+    const now = Math.floor(Date.now() / 1000);
+    this._winEnd = now; this._winStart = now - this._config.window_hours * 3600;
     const initialView = this._urlViewMode || this._config.default_view;
     const startInGrid = initialView === 'grid' && this._config.cameras.length > 1;
     if (startInGrid) this._setViewMode('grid');
@@ -1540,7 +1554,7 @@ class FrigateModernHassCard extends HTMLElement {
     if (cache.discovered) return;
     const ent = this._hass.states[entity]; if (!ent) return;
     cache.clientId = ent.attributes?.client_id || ent.attributes?.mqtt_client_id || 'frigate';
-    cache.cam = ent.attributes?.camera_name || entity.replace(/^camera\./,'');
+    cache.cam = ent.attributes?.camera_name || entity.replace(/^camera\./, '');
     cache.discovered = true;
     this._camCache[entity] = cache;
   }
@@ -1772,7 +1786,7 @@ class FrigateModernHassCard extends HTMLElement {
       ? `/api/frigate/${clientId}/go2rtc/ws/api/ws${query}`
       : `/api/frigate/${clientId}/mse/api/ws${query}`;
     const known = this._go2rtcPath?.includes('/go2rtc/ws/') ? 'new'
-                : this._go2rtcPath ? 'old' : null;
+      : this._go2rtcPath ? 'old' : null;
     return known ? [build(known)] : [build('new'), build('old')];
   }
   _applyGo2rtcMode(player) {
@@ -1812,8 +1826,8 @@ class FrigateModernHassCard extends HTMLElement {
       retries++;
       if (retries <= MAX_SOFT_RETRIES) {
         console.warn('[frigate-modern-hass-card] go2rtc stream stalled, reconnecting', `(${retries}/${MAX_SOFT_RETRIES})`);
-        try { player.ondisconnect(); } catch (_) {}
-        try { player.onconnect(); } catch (_) {}
+        try { player.ondisconnect(); } catch (_) { }
+        try { player.onconnect(); } catch (_) { }
       } else {
         console.warn('[frigate-modern-hass-card] go2rtc could not recover, falling back to the Home Assistant stream');
         clearInterval(player._fmhcWatch);
@@ -1826,8 +1840,8 @@ class FrigateModernHassCard extends HTMLElement {
     clearInterval(p._fmhcWatch);
     // Close the socket/peer connection now rather than waiting out the
     // player's own disconnect timeout.
-    try { p.ondisconnect(); } catch (_) {}
-    try { p.remove(); } catch (_) {}
+    try { p.ondisconnect(); } catch (_) { }
+    try { p.remove(); } catch (_) { }
   }
   _teardownGridGo2rtc() {
     (this._gridPlayers || []).forEach(p => this._stopGo2rtcPlayer(p));
@@ -1901,17 +1915,17 @@ class FrigateModernHassCard extends HTMLElement {
     let pinchStartDist = 1, pinchStartScale = 1, midX = 0, midY = 0;
     let panStartX = 0, panStartY = 0, panStartTx = 0, panStartTy = 0;
     let lastTapT = 0, lastTapX = 0, lastTapY = 0;
-    const dist = (a,b) => Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     const apply = () => { engine.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
     const clampPan = () => {
       const w = engine.offsetWidth, h = engine.offsetHeight;
-      tx = Math.min(0, Math.max(w - w*scale, tx));
-      ty = Math.min(0, Math.max(h - h*scale, ty));
+      tx = Math.min(0, Math.max(w - w * scale, tx));
+      ty = Math.min(0, Math.max(h - h * scale, ty));
     };
     const zoomAt = (px, py, ns) => {
       ns = Math.min(MAX, Math.max(1, ns));
-      tx = px - (px - tx) * (ns/scale);
-      ty = py - (py - ty) * (ns/scale);
+      tx = px - (px - tx) * (ns / scale);
+      ty = py - (py - ty) * (ns / scale);
       scale = ns;
       clampPan();
     };
@@ -1922,11 +1936,11 @@ class FrigateModernHassCard extends HTMLElement {
         pinchStartDist = dist(e.touches[0], e.touches[1]) || 1;
         pinchStartScale = scale;
         const r = engine.getBoundingClientRect();
-        midX = (e.touches[0].clientX + e.touches[1].clientX)/2 - r.left;
-        midY = (e.touches[0].clientY + e.touches[1].clientY)/2 - r.top;
+        midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+        midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
       } else if (e.touches.length === 1) {
         const t = e.touches[0], now = Date.now();
-        if (now - lastTapT < 300 && Math.hypot(t.clientX-lastTapX, t.clientY-lastTapY) < 30) {
+        if (now - lastTapT < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 30) {
           const r = engine.getBoundingClientRect();
           if (scale > 1) { scale = 1; tx = 0; ty = 0; }
           else zoomAt(t.clientX - r.left, t.clientY - r.top, 2.5);
@@ -2159,7 +2173,7 @@ class FrigateModernHassCard extends HTMLElement {
     this._moreOpen = open;
     if (open) {
       this._menuSeenHere = true;
-      try { localStorage.setItem('fmhc-menu-seen', '1'); } catch (_) {}
+      try { localStorage.setItem('fmhc-menu-seen', '1'); } catch (_) { }
       // Clicks outside the card cannot reach _click, so listen on the document.
       this._moreOutside = e => { if (!e.composedPath().includes(this)) this._moreToggle(false); };
       this._moreKey = e => { if (e.key === 'Escape') { this._moreToggle(false); this.shadowRoot.querySelector('#sc-more')?.focus(); } };
@@ -2186,6 +2200,11 @@ class FrigateModernHassCard extends HTMLElement {
     const tail = [
       `<button role="menuitem" data-more="snapshot">${ICONS.snapshot}<span>Snapshot</span>${tag}</button>`,
       `<button role="menuitem" data-more="record" class="mi-rec">${ICONS.record}<span>${recording ? 'Stop recording' : 'Start recording'}</span>${tag}</button>`,
+      ...(this._activeCam?.buttons || []).map((b, i) => {
+        const status = this._buttonState(b.action);
+        const label = String(b.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        return `<button role="menuitem" data-more-button="${i}"${status ? ` aria-label="${label}, ${status === 'unknown' ? 'status unavailable or mixed' : status}"` : ''}>${status ? this._buttonStateIcon(status) : ICONS.record}<span>${label}</span></button>`;
+      }),
     ];
     return [...head, ...(head.length ? ['<hr>'] : []), ...tail].join('');
   }
@@ -2195,6 +2214,46 @@ class FrigateModernHassCard extends HTMLElement {
     if (what === 'talk') return this._talkOpen ? this._talkClose('closed') : this._talkShow();
     if (what === 'snapshot') return this._snapshot(entity);
     if (what === 'record') return this._recs?.[entity] ? this._recStop(entity) : this._recStart(entity);
+  }
+  _moreButtonAction(index) {
+    const button = this._activeCam?.buttons?.[index];
+    if (!button) return;
+    const action = button.action;
+    if (!action || !this._hass) return;
+    return this._triggerAction(action).catch(err => {
+      this._dbg('camera button action failed', button.label, action, err);
+      this._toast(`Could not run ${button.label}: ${err?.message || err}`, 7000);
+    });
+  }
+  async _triggerAction(action) {
+    // The HA action selector stores its value as a sequence, even when the
+    // user configured only one action (e.g. [{ action: 'light.turn_off' }]).
+    if (Array.isArray(action)) {
+      for (const step of action) await this._triggerAction(step);
+      return;
+    }
+    if (!action || typeof action !== 'object') throw new Error('No Home Assistant action is configured');
+    const type = action.action;
+    if (type === 'perform-action' || type === 'call-service' || (typeof type === 'string' && type.includes('.'))) {
+      const service = action.perform_action || action.service || type;
+      const [domain, serviceName] = String(service || '').split('.', 2);
+      if (!domain || !serviceName) throw new Error('Select a valid Home Assistant service');
+      const data = { ...(action.data || action.service_data || {}) };
+      if (action.target) Object.assign(data, action.target);
+      if (action.entity_id) data.entity_id = action.entity_id;
+      return this._hass.callService(domain, serviceName, data);
+    }
+    if (type === 'toggle' || type === 'turn_on' || type === 'turn_off') {
+      const target = action.target || {};
+      const entityIds = target.entity_id || action.entity_id;
+      if (!entityIds) throw new Error('This action needs an entity target');
+      const entities = Array.isArray(entityIds) ? entityIds : [entityIds];
+      const domains = [...new Set(entities.map(entity => entity.split('.')[0]))];
+      if (domains.length !== 1) throw new Error('Toggle actions need targets from one domain');
+      const service = type === 'toggle' ? 'toggle' : type;
+      return this._hass.callService(domains[0], service, { entity_id: entityIds });
+    }
+    throw new Error(`Unsupported action type: ${type || 'not selected'}`);
   }
 
   // ── snapshot and manual recording ─────────────────────────
@@ -2292,7 +2351,7 @@ class FrigateModernHassCard extends HTMLElement {
         const stream = j?.producers ? j : (j?.[cc.cam] || {});
         yes = (stream.producers || []).some(p => (p.medias || []).some(m => /^audio,\s*sendonly/.test(m)));
       }
-    } catch (_) {}
+    } catch (_) { }
     cc.talkAsking = false;
     cc.talk = yes;
     this._dbg('talk', entity, yes ? 'two-way audio available' : 'no two-way audio');
@@ -2353,7 +2412,7 @@ class FrigateModernHassCard extends HTMLElement {
       ws.addEventListener('message', ev => {
         let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; }
         if (msg.type === 'webrtc/answer') pc.setRemoteDescription({ type: 'answer', sdp: msg.value }).catch(() => this._talkFail(t));
-        else if (msg.type === 'webrtc/candidate' && msg.value) pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }).catch(() => {});
+        else if (msg.type === 'webrtc/candidate' && msg.value) pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }).catch(() => { });
         else if (msg.type === 'error') { this._dbg('talk error from go2rtc', msg.value); this._talkFail(t); }
       });
       ws.addEventListener('open', async () => {
@@ -2384,9 +2443,9 @@ class FrigateModernHassCard extends HTMLElement {
   // indicator goes off with the last stopped track.
   _talkRelease(t) {
     clearTimeout(t.timer);
-    try { t.stream?.getTracks().forEach(tr => tr.stop()); } catch (_) {}
-    try { t.pc?.close(); } catch (_) {}
-    try { t.ws?.close(); } catch (_) {}
+    try { t.stream?.getTracks().forEach(tr => tr.stop()); } catch (_) { }
+    try { t.pc?.close(); } catch (_) { }
+    try { t.ws?.close(); } catch (_) { }
   }
   _talkMute(v) {
     const t = this._talk; if (!t) return;
@@ -2504,7 +2563,7 @@ class FrigateModernHassCard extends HTMLElement {
     pad.addEventListener('pointerdown', e => {
       const b = target(e); if (!b) return;
       e.preventDefault();
-      try { b.setPointerCapture(e.pointerId); } catch (_) {}
+      try { b.setPointerCapture(e.pointerId); } catch (_) { }
       const [action, arg] = b.dataset.ptz.split(':');
       this._ptzStart(action, arg);
     });
@@ -2601,16 +2660,61 @@ class FrigateModernHassCard extends HTMLElement {
     // Actions on the camera on screen sit behind one button: PTZ, snapshot,
     // recording. Separate buttons no longer fitted beside the time range on a
     // phone, and each item only appears when the camera can do it.
-    const more = !inGrid && this._activeCam
+    const more = this._activeCam
       ? `<div class="more-wrap"><button class="tool${MENU_IS_NEW && !this._menuSeen() ? ' is-new' : ''}" id="sc-more" aria-haspopup="menu" aria-expanded="${!!this._moreOpen}" title="More actions">${ICONS.dots}</button>`
-        + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
+      + `<div class="more-menu" id="more-menu" role="menu"${this._moreOpen ? '' : ' hidden'}>${this._moreOpen ? this._moreItems() : ''}</div></div>`
       : '';
     bar.innerHTML = `${grid}${fs}${events}`;
     // Last in the row, where an overflow button is looked for, so the menu also
     // opens from the card's right edge.
     const slot = this.shadowRoot.querySelector('#more-slot');
     if (slot) slot.innerHTML = more;
+    this._renderInfoActions();
     this._applyEventsCollapsed();
+  }
+  _buttonTargets(action, out = new Set()) {
+    if (Array.isArray(action)) { action.forEach(step => this._buttonTargets(step, out)); return out; }
+    if (!action || typeof action !== 'object') return out;
+    const target = action.target || {};
+    const data = action.data || action.service_data || {};
+    for (const value of [target.entity_id, action.entity_id, data.entity_id]) {
+      for (const id of Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []) {
+        const entity = String(id).trim();
+        if (/^(light|switch)\.[\w-]+$/.test(entity)) out.add(entity);
+      }
+    }
+    return out;
+  }
+  _buttonState(action) {
+    const targets = [...this._buttonTargets(action)];
+    if (!targets.length) return '';
+    const states = targets.map(id => this._hass?.states?.[id]?.state);
+    if (states.every(state => state === 'on')) return 'on';
+    if (states.every(state => state === 'off')) return 'off';
+    return 'unknown';
+  }
+  _buttonStateIcon(status) {
+    if (!status) return '';
+    const icon = status === 'on' ? 'mdi:toggle-switch' : 'mdi:toggle-switch-off-outline';
+    return `<ha-icon class="button-state ${status}" icon="${icon}" aria-hidden="true"></ha-icon>`;
+  }
+  _renderInfoActions() {
+    const actions = this.shadowRoot.querySelector('#info-actions');
+    if (!actions) return false;
+    const buttons = this._activeCam?.buttons || [];
+    const signature = buttons.map(button => `${button.label}:${this._buttonState(button.action)}`).join('|');
+    if (signature === this._infoActionsSignature) return false;
+    this._infoActionsSignature = signature;
+    const rows = buttons.map((button, i) => {
+      const label = String(button.label).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+      const status = this._buttonState(button.action);
+      const indicator = this._buttonStateIcon(status);
+      const stateLabel = status ? `, ${status === 'unknown' ? 'status unavailable or mixed' : status}` : '';
+      return `<button type="button" class="info-action" data-more-button="${i}" title="${label}${stateLabel}" aria-label="${label}${stateLabel}">${indicator}${label}</button>`;
+    }).join('');
+    actions.innerHTML = buttons.length ? `${rows}` : '';
+    actions.hidden = !buttons.length;
+    return true;
   }
   _applyEventsCollapsed() {
     const card = this.shadowRoot.querySelector('.card'); if (!card) return;
@@ -2689,8 +2793,8 @@ class FrigateModernHassCard extends HTMLElement {
     const mounting = this._mountEngine();
     if (!this._camCache[newEnt].discovered) await this._discoverOne(newEnt);
     const cached = this._camCache[newEnt];
-    this._events = cached.events||[]; this._recordings = cached.recordings||[];
-    this._reviews = cached.reviews||[]; this._kept = cached.kept||[];
+    this._events = cached.events || []; this._recordings = cached.recordings || [];
+    this._reviews = cached.reviews || []; this._kept = cached.kept || [];
     this._renderCamSwitcher(); this._syncStatus(); this._renderRec();
     await mounting;
     this._renderAll();
@@ -2701,16 +2805,16 @@ class FrigateModernHassCard extends HTMLElement {
     this._stopRotate();
     const secs = this._config.rotate_seconds || DEFAULT_ROTATE_S;
     this._rotateTimer = setInterval(() => {
-      const next = (this._activeCamIdx+1) % this._config.cameras.length;
+      const next = (this._activeCamIdx + 1) % this._config.cameras.length;
       this._switchCamera(next);
-    }, secs*1000);
+    }, secs * 1000);
   }
-  _stopRotate() { if (this._rotateTimer) { clearInterval(this._rotateTimer); this._rotateTimer=null; } }
+  _stopRotate() { if (this._rotateTimer) { clearInterval(this._rotateTimer); this._rotateTimer = null; } }
   _toggleRotate() {
-    if (this._rotateTimer) { this._stopRotate(); this._toast('Auto-rotate off',1800); }
+    if (this._rotateTimer) { this._stopRotate(); this._toast('Auto-rotate off', 1800); }
     else {
       if (!this._config.rotate_seconds) this._config.rotate_seconds = DEFAULT_ROTATE_S;
-      this._startRotate(); this._toast(`Rotating every ${this._config.rotate_seconds}s`,1800);
+      this._startRotate(); this._toast(`Rotating every ${this._config.rotate_seconds}s`, 1800);
     }
     this._renderCamSwitcher();
   }
@@ -2809,35 +2913,35 @@ class FrigateModernHassCard extends HTMLElement {
   }
   _dbg(...a) { if (this._config?.debug) console.info('[frigate-card]', ...a); }
   async _ws(p) { return parseWs(await this._hass.callWS(p)); }
-  _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now()/1000)) < 120; }
+  _isNowWindow() { return Math.abs(this._winEnd - Math.floor(Date.now() / 1000)) < 120; }
 
   async _loadWindow(replace) {
     // A request that arrives mid-load is for a newer window: run it once this
     // one is done instead of dropping it, or the lists stay on the old window.
     if (this._loading) { this._loadAgain = true; return; }
     this._loading = true;
-    const { clientId, cam } = this._cc(); if (!clientId||!cam) { this._loading=false; return; }
-    const after=this._winStart, before=this._winEnd;
+    const { clientId, cam } = this._cc(); if (!clientId || !cam) { this._loading = false; return; }
+    const after = this._winStart, before = this._winEnd;
     try {
-      const ev = await this._ws({ type:'frigate/events/get', instance_id:clientId, cameras:[cam], after, before, limit:20 });
-      this._events = Array.isArray(ev)?ev:[];
-    } catch(e) { console.error('[Frigate] events',e); }
+      const ev = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], after, before, limit: 20 });
+      this._events = Array.isArray(ev) ? ev : [];
+    } catch (e) { console.error('[Frigate] events', e); }
     try {
-      const rec = await this._ws({ type:'frigate/recordings/get', instance_id:clientId, camera:cam, after, before });
-      this._recordings = Array.isArray(rec)?rec:[];
-    } catch(_) { this._recordings=[]; }
-    const ent=this._activeCam?.entity;
-    if (ent&&this._camCache[ent]) { this._camCache[ent].events=this._events; this._camCache[ent].recordings=this._recordings; }
-    if (this._tab==='reviews') await this._loadReviews();
+      const rec = await this._ws({ type: 'frigate/recordings/get', instance_id: clientId, camera: cam, after, before });
+      this._recordings = Array.isArray(rec) ? rec : [];
+    } catch (_) { this._recordings = []; }
+    const ent = this._activeCam?.entity;
+    if (ent && this._camCache[ent]) { this._camCache[ent].events = this._events; this._camCache[ent].recordings = this._recordings; }
+    if (this._tab === 'reviews') await this._loadReviews();
     this._loading = false;
     if (this._loadAgain) { this._loadAgain = false; return this._loadWindow(replace); }
-    if (this._eventsMode==='all') this._loadAllCamsBackground();
+    if (this._eventsMode === 'all') this._loadAllCamsBackground();
     this._renderAll();
   }
 
   // Fetch all non-active cameras in parallel — was sequential, now Promise.all
   async _loadAllCamsBackground() {
-    const after=this._winStart, before=this._winEnd;
+    const after = this._winStart, before = this._winEnd;
     const others = this._config.cameras.filter(c => {
       const cc = this._camCache[c.entity];
       return c.entity !== this._activeCam?.entity && cc && cc.discovered;
@@ -2852,63 +2956,63 @@ class FrigateModernHassCard extends HTMLElement {
       ...others.map(async c => {
         const cc = this._camCache[c.entity];
         try {
-          const ev = await this._ws({type:'frigate/events/get',instance_id:cc.clientId,cameras:[cc.cam],after,before,limit:20});
+          const ev = await this._ws({ type: 'frigate/events/get', instance_id: cc.clientId, cameras: [cc.cam], after, before, limit: 20 });
           cc.events = Array.isArray(ev) ? ev : [];
-        } catch(_) {}
+        } catch (_) { }
       }),
       ...all.map(async c => {
         const cc = this._camCache[c.entity];
         try {
-          const r = await this._ws({type:'frigate/recordings/get',instance_id:cc.clientId,camera:cc.cam,after,before});
+          const r = await this._ws({ type: 'frigate/recordings/get', instance_id: cc.clientId, camera: cc.cam, after, before });
           recs.set(c.entity, Array.isArray(r) ? r : []);
-        } catch(_) {}
+        } catch (_) { }
       }),
     ]);
     // The window moved while this was loading: these answers are for another
     // window, and the load for the new one is on its way.
     if (after !== this._winStart || before !== this._winEnd) return;
     for (const [ent, r] of recs) this._camCache[ent].recordings = r;
-    if (this._eventsMode==='all') { this._renderList(); this._renderTimeline(); }
+    if (this._eventsMode === 'all') { this._renderList(); this._renderTimeline(); }
   }
 
   async _loadKept() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const k=await this._ws({type:'frigate/events/get',instance_id:clientId,cameras:[cam],favorites:true,limit:200});
-      this._kept=Array.isArray(k)?k:[];
-      const ent=this._activeCam?.entity; if(ent&&this._camCache[ent]) this._camCache[ent].kept=this._kept;
-    } catch(_) { this._kept=[]; }
+      const k = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], favorites: true, limit: 200 });
+      this._kept = Array.isArray(k) ? k : [];
+      const ent = this._activeCam?.entity; if (ent && this._camCache[ent]) this._camCache[ent].kept = this._kept;
+    } catch (_) { this._kept = []; }
   }
   async _loadReviews() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const r=await this._ws({type:'frigate/reviews/get',instance_id:clientId,cameras:[cam],after:this._winStart,before:this._winEnd,limit:200});
-      this._reviews=Array.isArray(r)?r:[];
-    } catch(_) { this._reviews=[]; }
+      const r = await this._ws({ type: 'frigate/reviews/get', instance_id: clientId, cameras: [cam], after: this._winStart, before: this._winEnd, limit: 200 });
+      this._reviews = Array.isArray(r) ? r : [];
+    } catch (_) { this._reviews = []; }
   }
   async _loadCalendar() {
-    const {clientId,cam}=this._cc();
+    const { clientId, cam } = this._cc();
     try {
-      const sum=await this._ws({type:'frigate/events/summary',instance_id:clientId,timezone:this._tz()});
-      if(Array.isArray(sum)) this._daysWithActivity=new Set(sum.filter(s=>s.camera===cam&&s.day).map(s=>s.day));
-    } catch(_) {}
+      const sum = await this._ws({ type: 'frigate/events/summary', instance_id: clientId, timezone: this._tz() });
+      if (Array.isArray(sum)) this._daysWithActivity = new Set(sum.filter(s => s.camera === cam && s.day).map(s => s.day));
+    } catch (_) { }
   }
-  _tz() { return this._hass?.config?.time_zone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'; }
+  _tz() { return this._hass?.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
 
   async _subscribe() {
-    const {clientId}=this._cc(); if(!this._hass?.connection||!clientId) return;
+    const { clientId } = this._cc(); if (!this._hass?.connection || !clientId) return;
     try {
-      this._unsub=this._hass.connection.subscribeMessage(
-        msg=>{ if(msg?.type==='end'&&this._isNowWindow()) this._scheduleReload(); },
-        {type:'frigate/events/subscribe',instance_id:clientId}
+      this._unsub = this._hass.connection.subscribeMessage(
+        msg => { if (msg?.type === 'end' && this._isNowWindow()) this._scheduleReload(); },
+        { type: 'frigate/events/subscribe', instance_id: clientId }
       );
-    } catch(_) {}
+    } catch (_) { }
   }
-  _scheduleReload() { clearTimeout(this._rt); this._rt=setTimeout(()=>this._loadWindow(true),1500); }
+  _scheduleReload() { clearTimeout(this._rt); this._rt = setTimeout(() => this._loadWindow(true), 1500); }
 
   // ── shell ─────────────────────────────────────────────────
   _renderShell() {
-    const title = this._config.title || (this._config.cameras.length===1 ? cap(camDisplayName(this._config.cameras[0])) : 'Cameras') || 'Camera';
+    const title = this._config.title || (this._config.cameras.length === 1 ? cap(camDisplayName(this._config.cameras[0])) : 'Cameras') || 'Camera';
     const sub = this._config.subtitle || 'Frigate';
     const multiCam = this._config.cameras.length > 1;
     const ht = new Set(this._config.hidden_tabs || []);
@@ -2918,7 +3022,7 @@ class FrigateModernHassCard extends HTMLElement {
         : `<div class="pill icon-only" data-tab="${id}" title="${label}">${icon}</div>`;
 
     this.shadowRoot.innerHTML = `<style>${STYLES}</style>
-      <ha-card class="card ${this._config.theme==='light'?'theme-light':this._config.theme==='auto'?'theme-auto':''}" id="card">
+      <ha-card class="card ${this._config.theme === 'light' ? 'theme-light' : this._config.theme === 'auto' ? 'theme-auto' : ''}" id="card">
         <div class="layout" id="layout">
           <div class="col-left">
             <!-- feed: single stream or grid -->
@@ -2962,7 +3066,7 @@ class FrigateModernHassCard extends HTMLElement {
             </div>
             <!-- info: sits below timeline in col-left -->
             <div class="info-row">
-              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub">${sub}</div></div>
+              <div><div class="info-title" id="info-title">${title}</div><div class="info-sub-row"><div class="info-sub">${sub}</div><div class="info-actions" id="info-actions" hidden></div></div></div>
               <div class="stats">
                 <div class="stat"><div class="sv" id="ev-count">—</div><div class="sl">Events</div></div>
                 <div class="stat"><div class="sv" id="on-dot" style="color:#4ade80">●</div><div class="sl" id="on-lbl">Online</div></div>
@@ -2994,7 +3098,7 @@ class FrigateModernHassCard extends HTMLElement {
         <div class="toast" id="toast" style="display:none"></div>
       </ha-card>`;
     this._domCache = {}; // invalidate DOM element cache after full re-render
-    this.shadowRoot.addEventListener('click', e=>this._click(e));
+    this.shadowRoot.addEventListener('click', e => this._click(e));
     this._wireScrub(); this._wireScroll(); this._wirePinchZoom(); this._wirePtz(); this._applyBrowse();
     if (multiCam) this._renderCamSwitcher();
     this._applyCardStyle();
@@ -3032,9 +3136,9 @@ class FrigateModernHassCard extends HTMLElement {
     // Custom accent color — compute bg/border variants from hex
     const acc = this._config.accent_color;
     if (acc && /^#[0-9a-f]{6}$/i.test(acc)) {
-      const r = parseInt(acc.slice(1,3),16), g = parseInt(acc.slice(3,5),16), b = parseInt(acc.slice(5,7),16);
-      card.style.setProperty('--c-acc',     acc);
-      card.style.setProperty('--c-acc-bg',  `rgba(${r},${g},${b},.18)`);
+      const r = parseInt(acc.slice(1, 3), 16), g = parseInt(acc.slice(3, 5), 16), b = parseInt(acc.slice(5, 7), 16);
+      card.style.setProperty('--c-acc', acc);
+      card.style.setProperty('--c-acc-bg', `rgba(${r},${g},${b},.18)`);
       card.style.setProperty('--c-acc-bdr', `rgba(${r},${g},${b},.40)`);
     } else {
       card.style.removeProperty('--c-acc');
@@ -3043,12 +3147,32 @@ class FrigateModernHassCard extends HTMLElement {
     }
 
     // Custom background color
+    // Helper to blend two 6-digit hex colors (weight: 0.0 to 1.0 of the second color)
+    const blendHex = (hex1, hex2, weight) => {
+      const c1 = parseInt(hex1.slice(1), 16);
+      const c2 = parseInt(hex2.slice(1), 16);
+
+      const r = Math.round(((c1 >> 16) * (1 - weight)) + ((c2 >> 16) * weight));
+      const g = Math.round((((c1 >> 8) & 0xff) * (1 - weight)) + (((c2 >> 8) & 0xff) * weight));
+      const b = Math.round(((c1 & 0xff) * (1 - weight)) + ((c2 & 0xff) * weight));
+
+      return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    };
+
+    // Custom background color
     const bg = this._config.bg_color;
     if (bg && /^#[0-9a-f]{6}$/i.test(bg)) {
       card.style.setProperty('--c-bg', bg);
+      // 85% white mix for a light, opaque panel
+      card.style.setProperty('--c-bg-panel', blendHex(bg, '#ffffff', 0.85));
+      // 15% black mix (or 92% white mix if you also want deep to be light)
+      card.style.setProperty('--c-bg-deep', blendHex(bg, '#000000', 0.15));
     } else {
       card.style.removeProperty('--c-bg');
+      card.style.removeProperty('--c-bg-panel');
+      card.style.removeProperty('--c-bg-deep');
     }
+
   }
 
   _setupResizeObserver() {
@@ -3075,7 +3199,7 @@ class FrigateModernHassCard extends HTMLElement {
       // placeholder tiles depends on it. Only on an actual change, since this
       // reconnects every stream.
       if (this._viewMode === 'grid' && this._gridCols
-          && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
+        && this._gridColumns(this._config.cameras.length) !== this._gridCols) {
         this._mountGrid();
       }
     });
@@ -3097,22 +3221,24 @@ class FrigateModernHassCard extends HTMLElement {
   // ── cam switcher ──────────────────────────────────────────
   _renderCamSwitcher() {
     const el = this.shadowRoot.querySelector('#cam-switcher'); if (!el) return;
-    if (this._config.cameras.length < 2) { el.style.display='none'; return; }
+    if (this._config.cameras.length < 2) { el.style.display = 'none'; return; }
     el.style.display = '';
 
-    const tabs = this._config.cameras.map((c,i) => {
+    const tabs = this._config.cameras.map((c, i) => {
       const name = cap(camDisplayName(c));
       const active = this._viewMode === 'single' && i === this._activeCamIdx;
       const ok = this._hass?.states[c.entity]?.state !== 'unavailable';
-      return `<button class="cam-tab ${active?'active':''}" data-camidx="${i}"><span class="cam-dot" style="color:${ok?'#4ade80':'#ef4444'}">●</span> ${name}</button>`;
+      return `<button class="cam-tab ${active ? 'active' : ''}" data-camidx="${i}"><span class="cam-dot" style="color:${ok ? '#4ade80' : '#ef4444'}">●</span> ${name}</button>`;
     }).join('');
     el.innerHTML = `<div class="cam-tabs">${tabs}</div>
-      <button class="cam-rotate ${this._rotateTimer?'on':''}" id="rotate-btn" title="Auto-rotate">${ICONS.rotate}</button>`;
+      <button class="cam-rotate ${this._rotateTimer ? 'on' : ''}" id="rotate-btn" title="Auto-rotate">${ICONS.rotate}</button>`;
   }
 
   // ── interactions ──────────────────────────────────────────
   _click(e) {
     if (e.target.closest('#sc-more')) return this._moreToggle();
+    const customMore = e.target.closest('[data-more-button]');
+    if (customMore) { this._moreToggle(false); return this._moreButtonAction(Number(customMore.dataset.moreButton)); }
     const mi = e.target.closest('[data-more]');
     if (mi) { this._moreToggle(false); return this._moreAction(mi.dataset.more); }
     // A click anywhere else in the card closes the menu and still does its own thing.
@@ -3140,20 +3266,20 @@ class FrigateModernHassCard extends HTMLElement {
     if (e.target.closest('#sc-events')) return this._toggleEvents();
     if (e.target.closest('#rotate-btn')) return this._toggleRotate();
     if (e.target.closest('[data-mark-all]')) return this._markAll();
-    if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed=!this._showReviewed; this._renderList(); return; }
+    if (e.target.closest('[data-toggle-reviewed]')) { this._showReviewed = !this._showReviewed; this._renderList(); return; }
 
     const setvm = e.target.closest('[data-setviewmode]'); if (setvm) return this._setViewMode(setvm.dataset.setviewmode);
     const viewm = e.target.closest('[data-viewmode]'); if (viewm) return this._setViewMode(viewm.dataset.viewmode);
     const camTab = e.target.closest('[data-camidx]'); if (camTab) return this._switchCamera(Number(camTab.dataset.camidx));
     const calDay = e.target.closest('[data-cal-day]'); if (calDay) return this._pickDay(calDay.dataset.calDay);
     const calNav = e.target.closest('[data-cal-nav]'); if (calNav) return this._calNav(Number(calNav.dataset.calNav));
-    const fopt = e.target.closest('[data-flabel]'); if (fopt) { this._filterLabel=fopt.dataset.flabel; this._renderFilter(); this._renderList(); return; }
-    const zopt = e.target.closest('[data-fzone]'); if (zopt) { this._filterZone=zopt.dataset.fzone; this._renderFilter(); this._renderList(); return; }
-    const favo = e.target.closest('[data-favonly]'); if (favo) { this._favOnly=favo.dataset.favonly==='1'; this._renderFilter(); this._renderList(); return; }
+    const fopt = e.target.closest('[data-flabel]'); if (fopt) { this._filterLabel = fopt.dataset.flabel; this._renderFilter(); this._renderList(); return; }
+    const zopt = e.target.closest('[data-fzone]'); if (zopt) { this._filterZone = zopt.dataset.fzone; this._renderFilter(); this._renderList(); return; }
+    const favo = e.target.closest('[data-favonly]'); if (favo) { this._favOnly = favo.dataset.favonly === '1'; this._renderFilter(); this._renderList(); return; }
 
-    const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl,dl.dataset.dlFile); }
+    const dl = e.target.closest('[data-dl]'); if (dl) { e.stopPropagation(); return this._download(dl.dataset.dl, dl.dataset.dlFile); }
     const fav = e.target.closest('[data-fav]'); if (fav) { e.stopPropagation(); return this._toggleFav(fav.dataset.fav); }
-    const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv=revMark.closest('[data-review-id]'); e.stopPropagation(); if(rv) return this._markReviewed(rv.dataset.reviewId); }
+    const revMark = e.target.closest('[data-mark]'); if (revMark) { const rv = revMark.closest('[data-review-id]'); e.stopPropagation(); if (rv) return this._markReviewed(rv.dataset.reviewId); }
     const revOpen = e.target.closest('[data-review-open]'); if (revOpen) return this._openReview(revOpen);
     const pill = e.target.closest('[data-tab]'); if (pill) return this._setTab(pill.dataset.tab);
     // A tick opens its clip where the list would: in the camera's own tile in
@@ -3186,21 +3312,21 @@ class FrigateModernHassCard extends HTMLElement {
 
   _setTab(tab) {
     this._tab = tab;
-    this.shadowRoot.querySelectorAll('[data-tab]').forEach(p=>p.classList.toggle('active',p.dataset.tab===tab));
-    const lbl=this.shadowRoot.querySelector('#list-label');
-    if (lbl) lbl.textContent=({live:'Recent events',recordings:'Recordings',clips:'Clips',snapshot:'Snapshots',reviews:'Reviews',kept:'Kept'})[tab]||tab;
-    if (tab==='live') this._showLive();
-    if (tab==='reviews') this._loadReviews().then(()=>this._renderList());
-    if (tab==='kept') this._loadKept().then(()=>this._renderList());
+    this.shadowRoot.querySelectorAll('[data-tab]').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+    const lbl = this.shadowRoot.querySelector('#list-label');
+    if (lbl) lbl.textContent = ({ live: 'Recent events', recordings: 'Recordings', clips: 'Clips', snapshot: 'Snapshots', reviews: 'Reviews', kept: 'Kept' })[tab] || tab;
+    if (tab === 'live') this._showLive();
+    if (tab === 'reviews') this._loadReviews().then(() => this._renderList());
+    if (tab === 'kept') this._loadKept().then(() => this._renderList());
     this._renderList();
   }
 
   // ── playback ──────────────────────────────────────────────
   _allDisplayEvents() {
-    if (this._eventsMode==='all') {
-      const seen=new Set(); const all=[];
-      for (const c of this._config.cameras) { const cc=this._camCache[c.entity]; if(cc) for(const ev of (cc.events||[])) if(!seen.has(ev.id)){seen.add(ev.id);all.push(ev);} }
-      return all.sort((a,b)=>b.start_time-a.start_time);
+    if (this._eventsMode === 'all') {
+      const seen = new Set(); const all = [];
+      for (const c of this._config.cameras) { const cc = this._camCache[c.entity]; if (cc) for (const ev of (cc.events || [])) if (!seen.has(ev.id)) { seen.add(ev.id); all.push(ev); } }
+      return all.sort((a, b) => b.start_time - a.start_time);
     }
     return this._events;
   }
@@ -3244,7 +3370,7 @@ class FrigateModernHassCard extends HTMLElement {
     // The tile says what is playing, as the single view does beside Live.
     const label = this._gridLabel(camIdx < 0 ? 0 : camIdx, ev);
     if (isSnap) {
-      const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
+      const url = await this._signed(this._media(ev.id, 'snapshot.jpg'));
       slot.innerHTML = `
         <img src="${url}" style="width:100%;height:100%;object-fit:contain;background:#000;display:block">
         ${label}
@@ -3263,9 +3389,9 @@ class FrigateModernHassCard extends HTMLElement {
   }
 
   _open(id) {
-    const ev=this._allDisplayEvents().find(e=>e.id===id);
-    if(!ev) return;
-    if (this._tab==='snapshot'||(!ev.has_clip&&ev.has_snapshot)) this._showSnapshot(ev);
+    const ev = this._allDisplayEvents().find(e => e.id === id);
+    if (!ev) return;
+    if (this._tab === 'snapshot' || (!ev.has_clip && ev.has_snapshot)) this._showSnapshot(ev);
     else if (ev.has_clip) this._showClip(ev); else this._showSnapshot(ev);
     this._playInfo(ev);
   }
@@ -3273,9 +3399,9 @@ class FrigateModernHassCard extends HTMLElement {
     this._ptzClose('playing a clip');
     this._talkClose('playing a clip');
     this.shadowRoot.querySelector('#eng-wrap')?.classList.add('viewing');
-    this.shadowRoot.querySelector('#engine').style.display='none';
-    const v=this.shadowRoot.querySelector('#viewer'); v.style.display='flex';
-    this.shadowRoot.querySelector('#feed-top').style.display='flex';
+    this.shadowRoot.querySelector('#engine').style.display = 'none';
+    const v = this.shadowRoot.querySelector('#viewer'); v.style.display = 'flex';
+    this.shadowRoot.querySelector('#feed-top').style.display = 'flex';
     this._playInfo(null);
     this._revealPlayer(this.shadowRoot.querySelector('#eng-wrap'));
   }
@@ -3304,11 +3430,11 @@ class FrigateModernHassCard extends HTMLElement {
     });
   }
   _showLive() {
-    this._playing=null; this._playInfo(null);
+    this._playing = null; this._playInfo(null);
     this.shadowRoot.querySelector('#eng-wrap')?.classList.remove('viewing');
-    const v=this.shadowRoot.querySelector('#viewer'); v.innerHTML=''; v.style.display='none';
-    this.shadowRoot.querySelector('#engine').style.display='block';
-    this.shadowRoot.querySelector('#feed-top').style.display='none';
+    const v = this.shadowRoot.querySelector('#viewer'); v.innerHTML = ''; v.style.display = 'none';
+    this.shadowRoot.querySelector('#engine').style.display = 'block';
+    this.shadowRoot.querySelector('#feed-top').style.display = 'none';
     this._renderStreamCtrl();
     this._revokeClipBlob();
   }
@@ -3349,7 +3475,7 @@ class FrigateModernHassCard extends HTMLElement {
       }
     }
   }
-  _media(id,file,dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl?'?download=true':''}`; }
+  _media(id, file, dl) { return `/api/frigate/${this._cc().clientId}/notifications/${id}/${file}${dl ? '?download=true' : ''}`; }
   // Same HLS route the Home Assistant media browser uses to play this event
   // (custom_components/frigate/media_source.py: vod/event/<id>/index.m3u8).
   _vod(id) { return `/api/frigate/${this._cc().clientId}/vod/event/${id}/index.m3u8`; }
@@ -3361,16 +3487,16 @@ class FrigateModernHassCard extends HTMLElement {
   }
   async _resolveClipUrl(id) {
     if (this._hlsNative()) return this._signed(this._vod(id));
-    return this._loadClipBlob(await this._signed(this._media(id,'clip.mp4')));
+    return this._loadClipBlob(await this._signed(this._media(id, 'clip.mp4')));
   }
   async _showClip(ev) {
     const token = ++this._playSeq;
-    this._enter(); this._playing={id:ev.id};
+    this._enter(); this._playing = { id: ev.id };
     const viewer = this.shadowRoot.querySelector('#viewer');
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(ev.id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    viewer.innerHTML = `<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
   // A review item is one arrival, often several tracked objects long. Play the
@@ -3397,44 +3523,44 @@ class FrigateModernHassCard extends HTMLElement {
     return shown;
   }
   async _showClipById(id) {
-    if(!id) return;
+    if (!id) return;
     const token = ++this._playSeq;
-    this._enter(); this._playing={id};
+    this._enter(); this._playing = { id };
     const viewer = this.shadowRoot.querySelector('#viewer');
     viewer.innerHTML = '<div class="ld">Loading…</div>';
     const playUrl = await this._resolveClipUrl(id);
     if (this._playSeq !== token) return;
-    viewer.innerHTML=`<video src="${playUrl}" controls playsinline></video>`;
+    viewer.innerHTML = `<video src="${playUrl}" controls playsinline></video>`;
     this._playMedia(viewer.querySelector('video'));
   }
   async _showSnapshot(ev) {
-    this._enter(); this._playing={id:ev.id};
-    const url = await this._signed(this._media(ev.id,'snapshot.jpg'));
-    this.shadowRoot.querySelector('#viewer').innerHTML=`<img class="snap" src="${url}">`;
+    this._enter(); this._playing = { id: ev.id };
+    const url = await this._signed(this._media(ev.id, 'snapshot.jpg'));
+    this.shadowRoot.querySelector('#viewer').innerHTML = `<img class="snap" src="${url}">`;
   }
   _fmtDurS(s) { // format seconds → m:ss or h:mm:ss
-    const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
-    return h>0 ? `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${m}:${String(ss).padStart(2,'0')}`;
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
   }
   async _showRecording(s, e, seekFrom, opts = {}) {
     const start = seekFrom || s;
     const token = ++this._playSeq; // cancel any in-flight load
-    this._enter(); this._playing={rec:s};
+    this._enter(); this._playing = { rec: s };
     const viewer = this.shadowRoot.querySelector('#viewer');
-    viewer.innerHTML='<div class="ld">Loading…</div>';
-    const {clientId,cam}=this._cc();
+    viewer.innerHTML = '<div class="ld">Loading…</div>';
+    const { clientId, cam } = this._cc();
     const maxChunk = 7200;
     const chunkEnd = Math.min(e, start + maxChunk);
     const clipDur = chunkEnd - start; // real clip length in seconds
     // _recUrl picks MP4 or, on Safari, HLS.
-    const url=await this._recUrl(clientId, cam, start, chunkEnd);
+    const url = await this._recUrl(clientId, cam, start, chunkEnd);
     if (this._playSeq !== token) return;
     const fromLbl = seekFrom
       ? `<div class="seek-from-lbl">▶ Playing from ${this._time(seekFrom)}</div>`
       : '';
     // No native `controls` — we show our own bar so the browser can't display
     // the wrong file duration (Frigate proxy may serve the full segment file).
-    viewer.innerHTML=`<video src="${url}" playsinline></video>${fromLbl}
+    viewer.innerHTML = `<video src="${url}" playsinline></video>${fromLbl}
       <div class="rec-dl-bar">
         <div class="rec-ctl-row">
           <button class="rec-pp-btn">⏸</button>
@@ -3447,7 +3573,7 @@ class FrigateModernHassCard extends HTMLElement {
           <button class="rec-dl-btn">↓ Download</button>
         </div>
       </div>`;
-    const vid     = viewer.querySelector('video');
+    const vid = viewer.querySelector('video');
     // Caller-supplied way out when the recording does not play at all. Only
     // before the first frame: a stream that started and then stalled is a
     // different problem, and swapping it for a clip would hide it.
@@ -3461,14 +3587,14 @@ class FrigateModernHassCard extends HTMLElement {
       vid.addEventListener('loadeddata', () => { started = true; clearTimeout(guard); }, { once: true });
       vid.addEventListener('error', bail, { once: true });
     }
-    const ppBtn   = viewer.querySelector('.rec-pp-btn');
+    const ppBtn = viewer.querySelector('.rec-pp-btn');
     const muteBtn = viewer.querySelector('.rec-mute-btn');
-    const ctTime  = viewer.querySelector('.rec-ctl-time');
-    const prog    = viewer.querySelector('.rec-prog');
-    const dlTime  = viewer.querySelector('.rec-dl-time');
-    const dlBtn   = viewer.querySelector('.rec-dl-btn');
+    const ctTime = viewer.querySelector('.rec-ctl-time');
+    const prog = viewer.querySelector('.rec-prog');
+    const dlTime = viewer.querySelector('.rec-dl-time');
+    const dlBtn = viewer.querySelector('.rec-dl-btn');
     if (vid) {
-      vid.addEventListener('play',  () => { if (ppBtn) ppBtn.textContent = '⏸'; });
+      vid.addEventListener('play', () => { if (ppBtn) ppBtn.textContent = '⏸'; });
       vid.addEventListener('pause', () => { if (ppBtn) ppBtn.textContent = '▶'; });
       vid.addEventListener('ended', () => { if (ppBtn) ppBtn.textContent = '▶'; });
       vid.addEventListener('timeupdate', () => {
@@ -3498,7 +3624,7 @@ class FrigateModernHassCard extends HTMLElement {
     });
     if (prog && vid) {
       prog.addEventListener('mousedown', e => { e.stopPropagation(); prog._dragging = true; });
-      prog.addEventListener('mouseup',   () => { prog._dragging = false; });
+      prog.addEventListener('mouseup', () => { prog._dragging = false; });
       prog.addEventListener('input', () => {
         const t = +prog.value;
         vid.currentTime = t;
@@ -3559,7 +3685,7 @@ class FrigateModernHassCard extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'rec-seek-wrap';
     // Helper: offset seconds → absolute wall-clock label
-    const toTime = v => this._time(rs + v, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const toTime = v => this._time(rs + v, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     wrap.innerHTML = `<div class="rec-seek-row">
       <input type="range" class="rec-seek-bar" min="0" max="${d}" value="0" step="1">
       <span class="rec-seek-lbl">▶ ${this._time(rs)}</span>
@@ -3578,7 +3704,7 @@ class FrigateModernHassCard extends HTMLElement {
     // Play from start immediately so user sees something while positioning the bar
     this._showRecording(rs, re);
   }
-  async _signed(path) { try { const r=await this._hass.callWS({type:'auth/sign_path',path,expires:3600}); return r?.path||path; } catch(_) { return path; } }
+  async _signed(path) { try { const r = await this._hass.callWS({ type: 'auth/sign_path', path, expires: 3600 }); return r?.path || path; } catch (_) { return path; } }
   // Recursively find a <video>, piercing open shadow roots (e.g. ha-camera-stream
   // renders its <video> inside its own shadow DOM, invisible to plain querySelector).
   _findVideo(root, depth) {
@@ -3589,7 +3715,7 @@ class FrigateModernHassCard extends HTMLElement {
     const all = root.querySelectorAll ? root.querySelectorAll('*') : [];
     for (const node of all) {
       if (node.shadowRoot) {
-        const v = this._findVideo(node.shadowRoot, (depth||0) + 1);
+        const v = this._findVideo(node.shadowRoot, (depth || 0) + 1);
         if (v) return v;
       }
     }
@@ -3598,7 +3724,7 @@ class FrigateModernHassCard extends HTMLElement {
   _exitFullscreen() {
     if (!(document.fullscreenElement || document.webkitFullscreenElement)) return;
     const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => {}); }
+    if (exit) { const p = exit.call(document); if (p?.catch) p.catch(() => { }); }
   }
   _fullscreen(el) {
     if (!el) return;
@@ -3617,41 +3743,41 @@ class FrigateModernHassCard extends HTMLElement {
       if (vid && typeof vid.webkitEnterFullscreen === 'function') { vid.webkitEnterFullscreen(); return; }
     }
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { const p = req.call(el); if (p?.catch) p.catch(() => {}); }
+    if (req) { const p = req.call(el); if (p?.catch) p.catch(() => { }); }
   }
-  _goNow() { this._zoomStack=[]; this._pickGroup(null); const now=Math.floor(Date.now()/1000); this._winEnd=now; this._winStart=now-this._config.window_hours*3600; this._exhausted=false; this._calMonth=null; this._loadWindow(true); }
-  _download(id,file) { const a=document.createElement('a'); a.href=this._media(id,file,true); a.download=`${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
+  _goNow() { this._zoomStack = []; this._pickGroup(null); const now = Math.floor(Date.now() / 1000); this._winEnd = now; this._winStart = now - this._config.window_hours * 3600; this._exhausted = false; this._calMonth = null; this._loadWindow(true); }
+  _download(id, file) { const a = document.createElement('a'); a.href = this._media(id, file, true); a.download = `${this._cc().cam}_${id}_${file}`; document.body.appendChild(a); a.click(); a.remove(); }
 
   // ── favorites (realtime) ──────────────────────────────────
   _toggleFav(id) {
-    const ev=this._events.find(e=>e.id===id); if(!ev) return;
-    const next=!ev.retain_indefinitely;
-    ev.retain_indefinitely=next;
-    if (next) { if(!this._kept.find(e=>e.id===id)) this._kept=[{...ev},...this._kept]; }
-    else { this._kept=this._kept.filter(e=>e.id!==id); }
-    const ent=this._activeCam?.entity; if(ent&&this._camCache[ent]) this._camCache[ent].kept=this._kept;
+    const ev = this._events.find(e => e.id === id); if (!ev) return;
+    const next = !ev.retain_indefinitely;
+    ev.retain_indefinitely = next;
+    if (next) { if (!this._kept.find(e => e.id === id)) this._kept = [{ ...ev }, ...this._kept]; }
+    else { this._kept = this._kept.filter(e => e.id !== id); }
+    const ent = this._activeCam?.entity; if (ent && this._camCache[ent]) this._camCache[ent].kept = this._kept;
     this._renderList(); this._renderLatest();
-    const {clientId}=this._cc();
-    this._hass.callWS({type:'frigate/event/retain',instance_id:clientId,event_id:id,retain:next})
-      .catch(err=>{
-        ev.retain_indefinitely=!next;
-        if(next) this._kept=this._kept.filter(e=>e.id!==id);
-        else if(!this._kept.find(e=>e.id===id)) this._kept=[{...ev},...this._kept];
+    const { clientId } = this._cc();
+    this._hass.callWS({ type: 'frigate/event/retain', instance_id: clientId, event_id: id, retain: next })
+      .catch(err => {
+        ev.retain_indefinitely = !next;
+        if (next) this._kept = this._kept.filter(e => e.id !== id);
+        else if (!this._kept.find(e => e.id === id)) this._kept = [{ ...ev }, ...this._kept];
         this._renderList();
-        console.warn('[Frigate] retain failed',err);
+        console.warn('[Frigate] retain failed', err);
         this._toast('Could not save — check Frigate port config.');
       });
   }
   async _markAll() {
-    const ids=this._reviews.filter(r=>!r.has_been_reviewed).map(r=>r.id); if(!ids.length) return;
-    const {clientId}=this._cc();
-    try { await this._hass.callWS({type:'frigate/reviews/viewed',instance_id:clientId,ids,viewed:true}); this._reviews.forEach(r=>r.has_been_reviewed=true); this._renderList(); }
-    catch(e) { console.warn(e); }
+    const ids = this._reviews.filter(r => !r.has_been_reviewed).map(r => r.id); if (!ids.length) return;
+    const { clientId } = this._cc();
+    try { await this._hass.callWS({ type: 'frigate/reviews/viewed', instance_id: clientId, ids, viewed: true }); this._reviews.forEach(r => r.has_been_reviewed = true); this._renderList(); }
+    catch (e) { console.warn(e); }
   }
   async _markReviewed(id) {
-    const {clientId}=this._cc();
-    try { await this._hass.callWS({type:'frigate/reviews/viewed',instance_id:clientId,ids:[id],viewed:true}); const r=this._reviews.find(x=>x.id===id); if(r) r.has_been_reviewed=true; this._renderList(); }
-    catch(e) { console.warn(e); }
+    const { clientId } = this._cc();
+    try { await this._hass.callWS({ type: 'frigate/reviews/viewed', instance_id: clientId, ids: [id], viewed: true }); const r = this._reviews.find(x => x.id === id); if (r) r.has_been_reviewed = true; this._renderList(); }
+    catch (e) { console.warn(e); }
   }
 
   // ── browse / filter ───────────────────────────────────────
@@ -3659,149 +3785,149 @@ class FrigateModernHassCard extends HTMLElement {
     const card = this.shadowRoot.querySelector('.card');
     const isWide = card?.classList.contains('wide');
     const isGrid = card?.classList.contains('grid-mode');
-    const b=this.shadowRoot.querySelector('#browse'); const c=this.shadowRoot.querySelector('#chev2');
+    const b = this.shadowRoot.querySelector('#browse'); const c = this.shadowRoot.querySelector('#chev2');
     // Wide: always open. Narrow grid: open by default but collapsable via toggle.
     const forceOpen = isWide;
-    if (b) b.style.display=(forceOpen||this._browseOpen)?'block':'none';
-    if (c) c.style.transform=(forceOpen||this._browseOpen)?'rotate(180deg)':'';
+    if (b) b.style.display = (forceOpen || this._browseOpen) ? 'block' : 'none';
+    if (c) c.style.transform = (forceOpen || this._browseOpen) ? 'rotate(180deg)' : '';
   }
-  _toggleBrowse() { this._browseOpen=!this._browseOpen; this._applyBrowse(); }
-  _toast(msg,ms=3500) {
-    const t=this.shadowRoot.querySelector('#toast'); if(!t) return;
-    t.textContent=msg; t.style.display='block';
-    clearTimeout(this._toastT); this._toastT=setTimeout(()=>{ t.style.display='none'; },ms);
+  _toggleBrowse() { this._browseOpen = !this._browseOpen; this._applyBrowse(); }
+  _toast(msg, ms = 3500) {
+    const t = this.shadowRoot.querySelector('#toast'); if (!t) return;
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(this._toastT); this._toastT = setTimeout(() => { t.style.display = 'none'; }, ms);
   }
-  _toggleFilter() { const p=this.shadowRoot.querySelector('#filter-panel'); const open=p.style.display==='none'; this.shadowRoot.querySelector('#cal-panel').style.display='none'; p.style.display=open?'block':'none'; if(open) this._renderFilter(); }
-  _toggleCal() { const p=this.shadowRoot.querySelector('#cal-panel'); const open=p.style.display==='none'; this.shadowRoot.querySelector('#filter-panel').style.display='none'; p.style.display=open?'block':'none'; if(open){ this._calMonth=this._calMonth||new Date(this._winEnd*1000); this._renderCal(); } }
+  _toggleFilter() { const p = this.shadowRoot.querySelector('#filter-panel'); const open = p.style.display === 'none'; this.shadowRoot.querySelector('#cal-panel').style.display = 'none'; p.style.display = open ? 'block' : 'none'; if (open) this._renderFilter(); }
+  _toggleCal() { const p = this.shadowRoot.querySelector('#cal-panel'); const open = p.style.display === 'none'; this.shadowRoot.querySelector('#filter-panel').style.display = 'none'; p.style.display = open ? 'block' : 'none'; if (open) { this._calMonth = this._calMonth || new Date(this._winEnd * 1000); this._renderCal(); } }
 
   // ── calendar ──────────────────────────────────────────────
-  _calNav(d) { const m=this._calMonth||new Date(); m.setMonth(m.getMonth()+d); this._calMonth=new Date(m); this._renderCal(); }
+  _calNav(d) { const m = this._calMonth || new Date(); m.setMonth(m.getMonth() + d); this._calMonth = new Date(m); this._renderCal(); }
   _pickDay(ds) {
-    const [y,mo,da]=ds.split('-').map(Number);
-    this._winStart=Math.floor(new Date(y,mo-1,da,0,0,0).getTime()/1000);
-    this._winEnd=Math.min(Math.floor(new Date(y,mo-1,da,23,59,59).getTime()/1000),Math.floor(Date.now()/1000));
-    this.shadowRoot.querySelector('#cal-panel').style.display='none'; this._loadWindow(true);
+    const [y, mo, da] = ds.split('-').map(Number);
+    this._winStart = Math.floor(new Date(y, mo - 1, da, 0, 0, 0).getTime() / 1000);
+    this._winEnd = Math.min(Math.floor(new Date(y, mo - 1, da, 23, 59, 59).getTime() / 1000), Math.floor(Date.now() / 1000));
+    this.shadowRoot.querySelector('#cal-panel').style.display = 'none'; this._loadWindow(true);
   }
   _renderCal() {
-    const p=this.shadowRoot.querySelector('#cal-panel'); if(!p) return;
-    const m=this._calMonth||new Date(); const y=m.getFullYear(),mo=m.getMonth();
-    const first=new Date(y,mo,1); const startDow=(first.getDay()+6)%7; const days=new Date(y,mo+1,0).getDate();
-    let cells=''; for(let i=0;i<startDow;i++) cells+='<span></span>';
-    for(let d=1;d<=days;d++){
-      const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      cells+=`<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds)?'<i class="cdot"></i>':''}</button>`;
+    const p = this.shadowRoot.querySelector('#cal-panel'); if (!p) return;
+    const m = this._calMonth || new Date(); const y = m.getFullYear(), mo = m.getMonth();
+    const first = new Date(y, mo, 1); const startDow = (first.getDay() + 6) % 7; const days = new Date(y, mo + 1, 0).getDate();
+    let cells = ''; for (let i = 0; i < startDow; i++) cells += '<span></span>';
+    for (let d = 1; d <= days; d++) {
+      const ds = `${y}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells += `<button class="cday" data-cal-day="${ds}">${d}${this._daysWithActivity.has(ds) ? '<i class="cdot"></i>' : ''}</button>`;
     }
-    p.innerHTML=`<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0],{month:'long',year:'numeric'})}</b><button data-cal-nav="1">›</button></div>
+    p.innerHTML = `<div class="cal-head"><button data-cal-nav="-1">‹</button><b>${m.toLocaleDateString(this._timeFmt()[0], { month: 'long', year: 'numeric' })}</b><button data-cal-nav="1">›</button></div>
       <div class="cal-dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="cal-grid">${cells}</div>`;
   }
   _renderFilter() {
-    const p=this.shadowRoot.querySelector('#filter-panel'); if(!p) return;
-    const lbls=['all',...this._labels()]; const zones=['all',...this._zones()];
-    const chip=(val,cur,attr)=>`<button class="chip ${val===cur?'on':''}" data-${attr}="${val}">${val==='all'?'All':cap(val)}</button>`;
-    p.innerHTML=`<div class="frow"><span class="frow-l">Label</span>${lbls.map(l=>chip(l,this._filterLabel,'flabel')).join('')}</div>
-      <div class="frow"><span class="frow-l">Zone</span>${zones.map(z=>chip(z,this._filterZone,'fzone')).join('')}</div>
+    const p = this.shadowRoot.querySelector('#filter-panel'); if (!p) return;
+    const lbls = ['all', ...this._labels()]; const zones = ['all', ...this._zones()];
+    const chip = (val, cur, attr) => `<button class="chip ${val === cur ? 'on' : ''}" data-${attr}="${val}">${val === 'all' ? 'All' : cap(val)}</button>`;
+    p.innerHTML = `<div class="frow"><span class="frow-l">Label</span>${lbls.map(l => chip(l, this._filterLabel, 'flabel')).join('')}</div>
+      <div class="frow"><span class="frow-l">Zone</span>${zones.map(z => chip(z, this._filterZone, 'fzone')).join('')}</div>
       <div class="frow"><span class="frow-l">Show</span>
-        <button class="chip ${!this._favOnly?'on':''}" data-favonly="0">All</button>
-        <button class="chip ${this._favOnly?'on':''}" data-favonly="1">★ Favorites</button></div>`;
+        <button class="chip ${!this._favOnly ? 'on' : ''}" data-favonly="0">All</button>
+        <button class="chip ${this._favOnly ? 'on' : ''}" data-favonly="1">★ Favorites</button></div>`;
   }
 
   // ── scrub / scroll ────────────────────────────────────────
   _wireScrub() {
-    const track=this.shadowRoot.querySelector('#tl-track'); if(!track) return;
-    let drag=false,sx=0,sws=0,swe=0;
+    const track = this.shadowRoot.querySelector('#tl-track'); if (!track) return;
+    let drag = false, sx = 0, sws = 0, swe = 0;
     // Pointing at an event lights up its camera's tile straight away, without
     // waiting for the browser's tooltip.
     // Only for a real mouse: on a phone a tap also fires mouseover, but nothing
     // ever un-hovers, so the tile stayed framed.
-    track.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return;const t=e.target.closest('[data-cis]');this._hlTiles(t?t.dataset.cis:'');});
-    track.addEventListener('pointerleave',()=>this._hlTiles(''));
-    const dn=x=>{drag=true;sx=x;sws=this._winStart;swe=this._winEnd;track.classList.add('grab');};
-    const mv=x=>{if(!drag)return;const w=track.clientWidth||1;const sp=swe-sws;const sh=Math.round((x-sx)/w*sp);let ns=sws-sh,ne=swe-sh;const now=Math.floor(Date.now()/1000);if(ne>now){const a=ne-now;ne-=a;ns-=a;}this._winStart=ns;this._winEnd=ne;this._renderTimeline();this._renderRange();};
-    const up=()=>{if(!drag)return;drag=false;track.classList.remove('grab');this._loadWindow(true);};
-    track.addEventListener('mousedown',e=>{e.preventDefault();dn(e.clientX);});
-    window.addEventListener('mousemove',e=>mv(e.clientX));
-    window.addEventListener('mouseup',up);
+    track.addEventListener('pointerover', e => { if (e.pointerType !== 'mouse') return; const t = e.target.closest('[data-cis]'); this._hlTiles(t ? t.dataset.cis : ''); });
+    track.addEventListener('pointerleave', () => this._hlTiles(''));
+    const dn = x => { drag = true; sx = x; sws = this._winStart; swe = this._winEnd; track.classList.add('grab'); };
+    const mv = x => { if (!drag) return; const w = track.clientWidth || 1; const sp = swe - sws; const sh = Math.round((x - sx) / w * sp); let ns = sws - sh, ne = swe - sh; const now = Math.floor(Date.now() / 1000); if (ne > now) { const a = ne - now; ne -= a; ns -= a; } this._winStart = ns; this._winEnd = ne; this._renderTimeline(); this._renderRange(); };
+    const up = () => { if (!drag) return; drag = false; track.classList.remove('grab'); this._loadWindow(true); };
+    track.addEventListener('mousedown', e => { e.preventDefault(); dn(e.clientX); });
+    window.addEventListener('mousemove', e => mv(e.clientX));
+    window.addEventListener('mouseup', up);
     // Pinch to zoom the window, the touch counterpart of the wheel below. One
     // finger pans, two zoom, and the moment the second finger lands the pan is
     // abandoned so the window does not jump. The time under the fingers stays
     // put, which is what makes a pinch feel like it is zooming and not sliding.
-    const gap=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-    let pinch=null;
-    const settle=()=>{clearTimeout(this._wt);this._wt=setTimeout(()=>this._loadWindow(true),350);};
-    track.addEventListener('touchstart',e=>{
-      if(e.touches.length===2){
-        drag=false;track.classList.remove('grab');
-        const rect=track.getBoundingClientRect();
-        const midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
-        const frac=Math.min(1,Math.max(0,(midX-rect.left)/rect.width));
-        const span=this._winEnd-this._winStart;
-        pinch={d0:gap(e.touches[0],e.touches[1])||1,span0:span,anchor:this._winStart+span*frac,frac};
-      } else { pinch=null; dn(e.touches[0].clientX); }
-    },{passive:true});
-    track.addEventListener('touchmove',e=>{
-      if(pinch&&e.touches.length===2){
+    const gap = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    let pinch = null;
+    const settle = () => { clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350); };
+    track.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        drag = false; track.classList.remove('grab');
+        const rect = track.getBoundingClientRect();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const frac = Math.min(1, Math.max(0, (midX - rect.left) / rect.width));
+        const span = this._winEnd - this._winStart;
+        pinch = { d0: gap(e.touches[0], e.touches[1]) || 1, span0: span, anchor: this._winStart + span * frac, frac };
+      } else { pinch = null; dn(e.touches[0].clientX); }
+    }, { passive: true });
+    track.addEventListener('touchmove', e => {
+      if (pinch && e.touches.length === 2) {
         e.preventDefault(); // otherwise the browser zooms the page instead
-        const d=gap(e.touches[0],e.touches[1])||1;
-        let nsp=Math.round(pinch.span0*(pinch.d0/d));
-        nsp=Math.max(300,Math.min(14*DAY,nsp)); // same limits as the wheel
-        let ns=Math.round(pinch.anchor-nsp*pinch.frac),ne=ns+nsp;
-        const now=Math.floor(Date.now()/1000);
-        if(ne>now){const a=ne-now;ne-=a;ns-=a;}
-        this._winStart=ns;this._winEnd=ne;this._exhausted=false;
-        this._renderTimeline();this._renderRange();
-      } else if(!pinch) mv(e.touches[0].clientX);
-    },{passive:false});
-    track.addEventListener('touchend',e=>{
-      if(pinch){ if(e.touches.length<2){pinch=null;settle();} return; }
+        const d = gap(e.touches[0], e.touches[1]) || 1;
+        let nsp = Math.round(pinch.span0 * (pinch.d0 / d));
+        nsp = Math.max(300, Math.min(14 * DAY, nsp)); // same limits as the wheel
+        let ns = Math.round(pinch.anchor - nsp * pinch.frac), ne = ns + nsp;
+        const now = Math.floor(Date.now() / 1000);
+        if (ne > now) { const a = ne - now; ne -= a; ns -= a; }
+        this._winStart = ns; this._winEnd = ne; this._exhausted = false;
+        this._renderTimeline(); this._renderRange();
+      } else if (!pinch) mv(e.touches[0].clientX);
+    }, { passive: false });
+    track.addEventListener('touchend', e => {
+      if (pinch) { if (e.touches.length < 2) { pinch = null; settle(); } return; }
       up();
     });
-    track.addEventListener('wheel',e=>{
+    track.addEventListener('wheel', e => {
       e.preventDefault();
-      const rect=track.getBoundingClientRect();const frac=Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
-      const span=this._winEnd-this._winStart;const now=Math.floor(Date.now()/1000);
-      const horiz=e.shiftKey||Math.abs(e.deltaX)>Math.abs(e.deltaY);
-      let ns,ne;
-      if(horiz){const delta=e.deltaX||e.deltaY;const shift=Math.round(delta/rect.width*span);ns=this._winStart+shift;ne=this._winEnd+shift;}
-      else{const anch=this._winStart+span*frac;const f=e.deltaY>0?1.25:0.8;let nsp=Math.round(span*f);nsp=Math.max(300,Math.min(14*DAY,nsp));ns=Math.round(anch-nsp*frac);ne=ns+nsp;}
-      if(ne>now){const a=ne-now;ne-=a;ns-=a;}
-      this._winStart=ns;this._winEnd=ne;this._exhausted=false;
-      this._renderTimeline();this._renderRange();
+      const rect = track.getBoundingClientRect(); const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const span = this._winEnd - this._winStart; const now = Math.floor(Date.now() / 1000);
+      const horiz = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      let ns, ne;
+      if (horiz) { const delta = e.deltaX || e.deltaY; const shift = Math.round(delta / rect.width * span); ns = this._winStart + shift; ne = this._winEnd + shift; }
+      else { const anch = this._winStart + span * frac; const f = e.deltaY > 0 ? 1.25 : 0.8; let nsp = Math.round(span * f); nsp = Math.max(300, Math.min(14 * DAY, nsp)); ns = Math.round(anch - nsp * frac); ne = ns + nsp; }
+      if (ne > now) { const a = ne - now; ne -= a; ns -= a; }
+      this._winStart = ns; this._winEnd = ne; this._exhausted = false;
+      this._renderTimeline(); this._renderRange();
       settle();
-    },{passive:false});
+    }, { passive: false });
   }
   _wireScroll() {
-    const list=this.shadowRoot.querySelector('#list'); if(!list) return;
-    list.addEventListener('scroll',()=>{if(this._loading||this._exhausted)return;if(list.scrollTop+list.clientHeight>=list.scrollHeight-40)this._loadOlder();});
+    const list = this.shadowRoot.querySelector('#list'); if (!list) return;
+    list.addEventListener('scroll', () => { if (this._loading || this._exhausted) return; if (list.scrollTop + list.clientHeight >= list.scrollHeight - 40) this._loadOlder(); });
   }
   async _loadOlder() {
-    const before=this._events.length?Math.floor(Math.min(...this._events.map(e=>e.start_time))):this._winStart;
-    this._loading=true; const {clientId,cam}=this._cc();
-    try{
-      const older=await this._ws({type:'frigate/events/get',instance_id:clientId,cameras:[cam],before,limit:50});
-      const arr=Array.isArray(older)?older.filter(o=>!this._events.some(e=>e.id===o.id)):[];
-      if(!arr.length)this._exhausted=true; else{this._events=this._events.concat(arr);this._winStart=Math.min(this._winStart,...arr.map(e=>e.start_time));}
-    }catch(_){}
-    this._loading=false; this._renderList();this._renderTimeline();this._renderRange();
+    const before = this._events.length ? Math.floor(Math.min(...this._events.map(e => e.start_time))) : this._winStart;
+    this._loading = true; const { clientId, cam } = this._cc();
+    try {
+      const older = await this._ws({ type: 'frigate/events/get', instance_id: clientId, cameras: [cam], before, limit: 50 });
+      const arr = Array.isArray(older) ? older.filter(o => !this._events.some(e => e.id === o.id)) : [];
+      if (!arr.length) this._exhausted = true; else { this._events = this._events.concat(arr); this._winStart = Math.min(this._winStart, ...arr.map(e => e.start_time)); }
+    } catch (_) { }
+    this._loading = false; this._renderList(); this._renderTimeline(); this._renderRange();
   }
 
   // ── render ────────────────────────────────────────────────
   _syncStatus() {
-    const ent=this._hass?.states?.[this._activeCam?.entity]; if(!ent) return;
-    const dot=this._$('#on-dot'),lbl=this._$('#on-lbl'),title=this._$('#info-title');
-    const ok=ent.state!=='unavailable';
-    if(dot) dot.style.color=ok?'#4ade80':'#ef4444';
-    if(lbl) lbl.textContent=ok?'Online':'Offline';
-    if(title) {
-      const c=this._activeCam; const n=this._config.title||(this._config.cameras.length>1?cap(camDisplayName(c)):'Camera');
-      title.textContent=n;
+    const ent = this._hass?.states?.[this._activeCam?.entity]; if (!ent) return;
+    const dot = this._$('#on-dot'), lbl = this._$('#on-lbl'), title = this._$('#info-title');
+    const ok = ent.state !== 'unavailable';
+    if (dot) dot.style.color = ok ? '#4ade80' : '#ef4444';
+    if (lbl) lbl.textContent = ok ? 'Online' : 'Offline';
+    if (title) {
+      const c = this._activeCam; const n = this._config.title || (this._config.cameras.length > 1 ? cap(camDisplayName(c)) : 'Camera');
+      title.textContent = n;
     }
   }
   // Cached querySelector — avoids repeated DOM lookups on every render tick
   _$(sel) { return this._domCache[sel] || (this._domCache[sel] = this.shadowRoot.querySelector(sel)); }
 
-  _renderAll() { this._renderStats();this._renderLatest();this._renderTimeline();this._renderLegend();this._renderRange();this._renderList();this._syncStatus();this._renderCamSwitcher();if(this._cardWidth>=560)this._syncColHeight(); }
-  _renderStats() { const el=this._$('#ev-count'); if(el) el.textContent=String(this._allDisplayEvents().length); }
+  _renderAll() { this._renderStats(); this._renderLatest(); this._renderTimeline(); this._renderLegend(); this._renderRange(); this._renderList(); this._syncStatus(); this._renderCamSwitcher(); if (this._cardWidth >= 560) this._syncColHeight(); }
+  _renderStats() { const el = this._$('#ev-count'); if (el) el.textContent = String(this._allDisplayEvents().length); }
   _zoomBack() {
     this._pickGroup(null);
     const prev = (this._zoomStack || []).pop(); if (!prev) return;
@@ -3810,41 +3936,41 @@ class FrigateModernHassCard extends HTMLElement {
     clearTimeout(this._wt); this._wt = setTimeout(() => this._loadWindow(true), 350);
   }
   _renderRange() {
-    const back=this.shadowRoot.querySelector('#zoom-back');
+    const back = this.shadowRoot.querySelector('#zoom-back');
     if (back) back.hidden = !(this._zoomStack && this._zoomStack.length);
-    const el=this._$('#tl-range'); if(!el) return;
-    const span=this._winEnd-this._winStart; const fmt=t=>this._time(t);
+    const el = this._$('#tl-range'); if (!el) return;
+    const span = this._winEnd - this._winStart; const fmt = t => this._time(t);
     // On a phone today's date is left out: it is implied, and without it the
     // range and the toolbar fit on one line.
-    const narrow=this.shadowRoot.querySelector('.card')?.classList.contains('narrow');
-    const today=new Date(this._winEnd*1000).toDateString()===new Date().toDateString();
-    const day=narrow&&today?'':`${this._day(this._winEnd)} · `;
-    if(span<=DAY+60) el.textContent=`${day}${fmt(this._winStart)}–${this._isNowWindow()?'now':fmt(this._winEnd)}`;
-    else el.textContent=`${this._day(this._winStart)} – ${this._isNowWindow()?'now':this._day(this._winEnd)}`;
+    const narrow = this.shadowRoot.querySelector('.card')?.classList.contains('narrow');
+    const today = new Date(this._winEnd * 1000).toDateString() === new Date().toDateString();
+    const day = narrow && today ? '' : `${this._day(this._winEnd)} · `;
+    if (span <= DAY + 60) el.textContent = `${day}${fmt(this._winStart)}–${this._isNowWindow() ? 'now' : fmt(this._winEnd)}`;
+    else el.textContent = `${this._day(this._winStart)} – ${this._isNowWindow() ? 'now' : this._day(this._winEnd)}`;
   }
   _renderLegend() {
-    const el=this._$('#legend'); if(!el) return;
-    const labels=this._labels();
+    const el = this._$('#legend'); if (!el) return;
+    const labels = this._labels();
     // The legend explains the colours actually on the timeline: cameras in grid
     // view, object labels on a single camera.
     let html;
-    if (this._eventsMode==='all') {
-      html=this._config.cameras.map((c,i)=>`<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
+    if (this._eventsMode === 'all') {
+      html = this._config.cameras.map((c, i) => `<span class="lg"><i style="background:${this._camColor(i)}"></i>${cap(camDisplayName(c))}</span>`).join('');
     } else {
-      html=labels.map(l=>`<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
+      html = labels.map(l => `<span class="lg"><i style="background:${labelColor(l)}"></i>${cap(l)}</span>`).join('');
     }
-    html+=`<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
-    el.innerHTML=html;
+    html += `<span class="lg"><i style="background:${REC_NEUTRAL}"></i>Recording</span>`;
+    el.innerHTML = html;
   }
 
   // ── latest event (always visible, compact, no toggle) ─────
   _renderLatest() {
-    const row=this._$('#latest-row'); if(!row) return;
-    const events=this._allDisplayEvents();
-    if(!events.length||this._viewMode==='grid'){ row.style.display='none'; return; }
-    row.style.display='block';
-    row.innerHTML=`<div class="latest-label"><span class="section-label">Latest event</span></div>
-      <div class="latest-body">${this._eventCardHTML(events[0],false,true)}</div>`;
+    const row = this._$('#latest-row'); if (!row) return;
+    const events = this._allDisplayEvents();
+    if (!events.length || this._viewMode === 'grid') { row.style.display = 'none'; return; }
+    row.style.display = 'block';
+    row.innerHTML = `<div class="latest-label"><span class="section-label">Latest event</span></div>
+      <div class="latest-body">${this._eventCardHTML(events[0], false, true)}</div>`;
   }
 
   // Locale and clock for every time and date the card shows. Follows the user's
@@ -3870,40 +3996,40 @@ class FrigateModernHassCard extends HTMLElement {
   _day(ts, opts = { day: '2-digit', month: 'short' }) {
     return new Date(ts * 1000).toLocaleDateString(this._timeFmt()[0], opts);
   }
-  _dur(ev) { return Math.max(1,Math.round((ev.end_time||Date.now()/1000)-ev.start_time)); }
-  _zones() { const z=new Set(); this._allDisplayEvents().forEach(e=>(e.zones||[]).forEach(x=>z.add(x))); return [...z]; }
-  _labels() { const l=new Set(); this._allDisplayEvents().forEach(e=>e.label&&l.add(e.label)); return [...l]; }
+  _dur(ev) { return Math.max(1, Math.round((ev.end_time || Date.now() / 1000) - ev.start_time)); }
+  _zones() { const z = new Set(); this._allDisplayEvents().forEach(e => (e.zones || []).forEach(x => z.add(x))); return [...z]; }
+  _labels() { const l = new Set(); this._allDisplayEvents().forEach(e => e.label && l.add(e.label)); return [...l]; }
   _filtered() {
-    let list=this._allDisplayEvents();
-    if(this._tab==='clips') list=list.filter(e=>e.has_clip);
-    else if(this._tab==='snapshot') list=list.filter(e=>e.has_snapshot);
-    if(this._filterLabel!=='all') list=list.filter(e=>e.label===this._filterLabel);
-    if(this._filterZone!=='all') list=list.filter(e=>(e.zones||[]).includes(this._filterZone));
-    if(this._favOnly) list=list.filter(e=>e.retain_indefinitely);
+    let list = this._allDisplayEvents();
+    if (this._tab === 'clips') list = list.filter(e => e.has_clip);
+    else if (this._tab === 'snapshot') list = list.filter(e => e.has_snapshot);
+    if (this._filterLabel !== 'all') list = list.filter(e => e.label === this._filterLabel);
+    if (this._filterZone !== 'all') list = list.filter(e => (e.zones || []).includes(this._filterZone));
+    if (this._favOnly) list = list.filter(e => e.retain_indefinitely);
     return list;
   }
   _mergeRecs(recs) {
-    if(!recs.length) return [];
-    const segs=[...recs].sort((a,b)=>a.start_time-b.start_time); const out=[]; let cur={...segs[0]};
-    for(let i=1;i<segs.length;i++){const s=segs[i];const ce=cur.end_time||cur.start_time;if(s.start_time-ce<=60){cur.end_time=Math.max(ce,s.end_time||s.start_time);cur.events=(cur.events||0)+(s.events||0);}else{out.push(cur);cur={...s};}}
+    if (!recs.length) return [];
+    const segs = [...recs].sort((a, b) => a.start_time - b.start_time); const out = []; let cur = { ...segs[0] };
+    for (let i = 1; i < segs.length; i++) { const s = segs[i]; const ce = cur.end_time || cur.start_time; if (s.start_time - ce <= 60) { cur.end_time = Math.max(ce, s.end_time || s.start_time); cur.events = (cur.events || 0) + (s.events || 0); } else { out.push(cur); cur = { ...s }; } }
     out.push(cur); return out;
   }
 
   _renderTimeline() {
-    const track=this._$('#tl-track'),labels=this._$('#tl-labels'); if(!track) return;
-    const s=this._winStart,e=this._winEnd,span=Math.max(1,e-s); let html='';
+    const track = this._$('#tl-track'), labels = this._$('#tl-labels'); if (!track) return;
+    const s = this._winStart, e = this._winEnd, span = Math.max(1, e - s); let html = '';
 
-    if (this._eventsMode==='all') {
+    if (this._eventsMode === 'all') {
       // One band for "something was recording here". Per camera bands at full
       // height lay on top of each other and the last camera hid the rest, so the
       // legend promised colours nobody could see. Telling cameras apart is the
       // ticks' job in this view.
-      const all=[];
-      this._config.cameras.forEach(c=>{ const cc=this._camCache[c.entity]; if(cc) all.push(...(cc.recordings||[])); });
+      const all = [];
+      this._config.cameras.forEach(c => { const cc = this._camCache[c.entity]; if (cc) all.push(...(cc.recordings || [])); });
       // Neutral, so it cannot be mistaken for the first camera's colour.
-      for(const r of this._mergeRecs(all)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
+      for (const r of this._mergeRecs(all)) { const a = r.start_time, b = r.end_time || e; if (b < s || a > e) continue; const left = (Math.max(a, s) - s) / span * 100; const w = Math.max(0.3, (Math.min(b, e) - Math.max(a, s)) / span * 100); html += `<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`; }
     } else {
-      for(const r of this._mergeRecs(this._recordings)){const a=r.start_time,b=r.end_time||e;if(b<s||a>e)continue;const left=(Math.max(a,s)-s)/span*100;const w=Math.max(0.3,(Math.min(b,e)-Math.max(a,s))/span*100);html+=`<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`;}
+      for (const r of this._mergeRecs(this._recordings)) { const a = r.start_time, b = r.end_time || e; if (b < s || a > e) continue; const left = (Math.max(a, s) - s) / span * 100; const w = Math.max(0.3, (Math.min(b, e) - Math.max(a, s)) / span * 100); html += `<div class="t-rec" style="left:${left}%;width:${w}%;background:${REC_NEUTRAL}"></div>`; }
     }
     // With every camera on one timeline a tick is coloured by camera, so you can
     // see where something happened; what it was is in the tooltip. On a single
@@ -3940,126 +4066,159 @@ class FrigateModernHassCard extends HTMLElement {
       // kind of object on a single camera. Otherwise neutral.
       const labels = new Set(g.evs.map(ev => ev.label));
       const col = all ? (cis.length === 1 ? this._camColor(cis[0]) : REC_GROUP)
-                      : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
+        : (labels.size === 1 ? labelColor(g.evs[0].label) : REC_GROUP);
       const names = all ? ' · ' + cis.map(i => cap(camDisplayName(this._config.cameras[i]))).join(', ') : '';
       html += `<div class="t-grp" data-grp-s="${a}" data-grp-e="${b}" data-grp-ids="${g.evs.map(ev => ev.id).join(',')}"${hl} style="left:${mid}%;background:${col}" title="${g.evs.length} events ${this._time(a)}–${this._time(b)}${names}">${g.evs.length}</div>`;
     }
-    const nowPct=(Math.min(Math.floor(Date.now()/1000),e)-s)/span*100;
-    html+=`<div class="tl-now" style="left:${Math.max(0,Math.min(100,nowPct))}%"></div>`;
-    track.innerHTML=html;
-    if(labels){let l='';for(let i=0;i<5;i++){const ts=s+span*i/4;l+=`<span>${i===4&&this._isNowWindow()?'now':this._time(ts)}</span>`;}labels.innerHTML=l;}
+    const nowPct = (Math.min(Math.floor(Date.now() / 1000), e) - s) / span * 100;
+    html += `<div class="tl-now" style="left:${Math.max(0, Math.min(100, nowPct))}%"></div>`;
+    track.innerHTML = html;
+    if (labels) { let l = ''; for (let i = 0; i < 5; i++) { const ts = s + span * i / 4; l += `<span>${i === 4 && this._isNowWindow() ? 'now' : this._time(ts)}</span>`; } labels.innerHTML = l; }
   }
 
-  _favIcon(ev) { return ev.retain_indefinitely?`<button class="ico fav on" data-fav="${ev.id}">${ICONS.star}</button>`:`<button class="ico fav" data-fav="${ev.id}">${ICONS.starO}</button>`; }
+  _favIcon(ev) { return ev.retain_indefinitely ? `<button class="ico fav on" data-fav="${ev.id}">${ICONS.star}</button>` : `<button class="ico fav" data-fav="${ev.id}">${ICONS.starO}</button>`; }
 
-  _eventCardHTML(ev,expanded,compact=false) {
-    const col=labelColor(ev.label); const score=ev.top_score!=null?Math.round(ev.top_score*100)+'%':'';
-    const zone=ev.zones&&ev.zones.length?ev.zones[0]:''; const subl=ev.sub_label?`<span class="subl">${ev.sub_label}</span>`:'';
-    const desc=expanded&&ev.data?.description?`<div class="desc">${ev.data.description}</div>`:'';
-    const thumb=ev.has_snapshot||ev.has_clip?`<img src="${this._media(ev.id,'thumbnail.jpg')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tph" style="display:none">${ICONS.person}</div>`:`<div class="tph">${ICONS.person}</div>`;
-    const badge=ev.has_clip?'<span class="bc">clip</span>':(ev.has_snapshot?'<span class="bs">snap</span>':'');
-    const dlClip=ev.has_clip?`<button class="ico" data-dl="${ev.id}" data-dl-file="clip.mp4" title="Download clip">${ICONS.download}</button>`:'';
-    const dlSnap=ev.has_snapshot?`<button class="ico" data-dl="${ev.id}" data-dl-file="snapshot.jpg" title="Download snapshot">${ICONS.snapshot}</button>`:'';
+  _eventCardHTML(ev, expanded, compact = false) {
+    const col = labelColor(ev.label); const score = ev.top_score != null ? Math.round(ev.top_score * 100) + '%' : '';
+    const zone = ev.zones && ev.zones.length ? ev.zones[0] : ''; const subl = ev.sub_label ? `<span class="subl">${ev.sub_label}</span>` : '';
+    const desc = expanded && ev.data?.description ? `<div class="desc">${ev.data.description}</div>` : '';
+    const thumb = ev.has_snapshot || ev.has_clip ? `<img src="${this._media(ev.id, 'thumbnail.jpg')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="tph" style="display:none">${ICONS.person}</div>` : `<div class="tph">${ICONS.person}</div>`;
+    const badge = ev.has_clip ? '<span class="bc">clip</span>' : (ev.has_snapshot ? '<span class="bs">snap</span>' : '');
+    const dlClip = ev.has_clip ? `<button class="ico" data-dl="${ev.id}" data-dl-file="clip.mp4" title="Download clip">${ICONS.download}</button>` : '';
+    const dlSnap = ev.has_snapshot ? `<button class="ico" data-dl="${ev.id}" data-dl-file="snapshot.jpg" title="Download snapshot">${ICONS.snapshot}</button>` : '';
     // show camera name in multi-cam all-events mode
-    const camLabel=(this._eventsMode==='all'&&this._config.cameras.length>1)?`<span class="cam-badge">${(ev.camera||'').replace(/_/g,' ')}</span>`:'';
+    const camLabel = (this._eventsMode === 'all' && this._config.cameras.length > 1) ? `<span class="cam-badge">${(ev.camera || '').replace(/_/g, ' ')}</span>` : '';
     // compact: wrap everything in a tighter layout, actions horizontal
-    return `<div class="ec${compact?' compact':''}" data-ev="${ev.id}">
+    return `<div class="ec${compact ? ' compact' : ''}" data-ev="${ev.id}">
       <div class="et">${thumb}<div class="ed">${this._dur(ev)}s</div></div>
       <div class="ei">
-        <div class="etop"><span class="tb" style="background:${col}33;color:${col}">${cap(ev.label)}</span>${subl}${badge}${camLabel}${score?`<span class="esc">${score}</span>`:''}</div>
-        <div class="em"><span>${ICONS.clock}${this._time(ev.start_time)}</span>${zone?`<span>${ICONS.pin}${zone}</span>`:''}</div>
+        <div class="etop"><span class="tb" style="background:${col}33;color:${col}">${cap(ev.label)}</span>${subl}${badge}${camLabel}${score ? `<span class="esc">${score}</span>` : ''}</div>
+        <div class="em"><span>${ICONS.clock}${this._time(ev.start_time)}</span>${zone ? `<span>${ICONS.pin}${zone}</span>` : ''}</div>
         ${desc}
       </div>
-      <div class="eact${compact?' h':''}">${this._favIcon(ev)}${dlClip}${dlSnap}</div>
+      <div class="eact${compact ? ' h' : ''}">${this._favIcon(ev)}${dlClip}${dlSnap}</div>
     </div>`;
   }
 
   _renderList() {
-    const list=this._$('#list'); if(!list) return;
-    if(this._tab==='recordings') {
+    const list = this._$('#list'); if (!list) return;
+    if (this._tab === 'recordings') {
       // Don't blow away the recording list (and seek bar) while the user is watching a recording
       const viewerActive = this._$('#viewer')?.style.display !== 'none';
       if (viewerActive && this._playing?.rec != null) return;
       return this._renderRecordings(list);
     }
-    if(this._tab==='reviews') return this._renderReviews(list);
-    if(this._tab==='kept'){
-      if(!this._kept.length){list.innerHTML=`<div class="empty">No kept events<br><span style="opacity:.6">star an event to keep it</span></div>`;return;}
-      list.innerHTML=this._kept.map(ev=>this._eventCardHTML(ev,false)).join(''); return;
+    if (this._tab === 'reviews') return this._renderReviews(list);
+    if (this._tab === 'kept') {
+      if (!this._kept.length) { list.innerHTML = `<div class="empty">No kept events<br><span style="opacity:.6">star an event to keep it</span></div>`; return; }
+      list.innerHTML = this._kept.map(ev => this._eventCardHTML(ev, false)).join(''); return;
     }
-    const events=this._filtered();
-    if(!events.length){list.innerHTML=`<div class="empty">No events in this window</div>`;return;}
-    list.innerHTML=events.map(ev=>this._eventCardHTML(ev,false)).join('')+(this._exhausted?'<div class="end">— end —</div>':'<div class="more">scroll for older…</div>');
+    const events = this._filtered();
+    if (!events.length) { list.innerHTML = `<div class="empty">No events in this window</div>`; return; }
+    list.innerHTML = events.map(ev => this._eventCardHTML(ev, false)).join('') + (this._exhausted ? '<div class="end">— end —</div>' : '<div class="more">scroll for older…</div>');
   }
   _renderRecordings(list) {
     // In grid view the list covers every camera, each row naming its camera.
     // It used to show only whichever camera happened to be active, unnamed.
-    const all=this._eventsMode==='all';
-    let recs=[];
-    if (all) this._config.cameras.forEach((c,ci)=>{ const cc=this._camCache[c.entity]; if(cc) for(const r of this._mergeRecs(cc.recordings||[])) recs.push({...r,ci}); });
-    else recs=this._mergeRecs(this._recordings);
-    recs.sort((a,b)=>b.start_time-a.start_time);
-    if(!recs.length){list.innerHTML='<div class="empty">No recordings in this window</div>';return;}
-    list.innerHTML=recs.map(r=>{
-      const rs=Math.floor(r.start_time), re=Math.floor(r.end_time||Date.now()/1000);
-      const d=Math.max(1,re-rs); const mm=Math.floor(d/60),ss=d%60;
-      const dur=`${mm?mm+'m ':''}${ss}s`;
+    const all = this._eventsMode === 'all';
+    let recs = [];
+    if (all) this._config.cameras.forEach((c, ci) => { const cc = this._camCache[c.entity]; if (cc) for (const r of this._mergeRecs(cc.recordings || [])) recs.push({ ...r, ci }); });
+    else recs = this._mergeRecs(this._recordings);
+    recs.sort((a, b) => b.start_time - a.start_time);
+    if (!recs.length) { list.innerHTML = '<div class="empty">No recordings in this window</div>'; return; }
+    list.innerHTML = recs.map(r => {
+      const rs = Math.floor(r.start_time), re = Math.floor(r.end_time || Date.now() / 1000);
+      const d = Math.max(1, re - rs); const mm = Math.floor(d / 60), ss = d % 60;
+      const dur = `${mm ? mm + 'm ' : ''}${ss}s`;
       const seekHint = d > 300 && !all ? ' <span class="seek-hint">· click to seek</span>' : '';
       const cam = all ? `<i class="cam-dot-lbl" style="background:${this._camColor(r.ci)}"></i>${cap(camDisplayName(this._config.cameras[r.ci]))} · ` : '';
-      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all?` data-ci="${r.ci}"`:''}>
+      return `<div class="rec" data-rs="${rs}" data-re="${re}"${all ? ` data-ci="${r.ci}"` : ''}>
         <div class="ric">${ICONS.recordings}</div>
         <div class="rinf">
-          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time||Date.now()/1000)}</div>
-          <div class="rsub">${dur}${r.events?' · '+r.events+' ev':''}${seekHint}</div>
+          <div class="rt">${cam}${this._time(r.start_time)} – ${this._time(r.end_time || Date.now() / 1000)}</div>
+          <div class="rsub">${dur}${r.events ? ' · ' + r.events + ' ev' : ''}${seekHint}</div>
         </div>
         <div class="rp">▶</div>
       </div>`;
     }).join('');
   }
   _renderReviews(list) {
-    if(!this._reviews.length){list.innerHTML='<div class="empty">No reviews in this window</div>';return;}
-    const allRevs=[...this._reviews].sort((a,b)=>b.start_time-a.start_time);
-    const unrev=allRevs.filter(r=>!r.has_been_reviewed).length;
-    const revs=this._showReviewed ? allRevs : allRevs.filter(r=>!r.has_been_reviewed);
-    const toggleLbl=this._showReviewed?'Hide reviewed':'Show reviewed';
-    const head=`<div class="rev-head"><span>${unrev} to review</span><div style="display:flex;gap:5px;align-items:center">${unrev?`<button class="chip on" data-mark-all>Mark all</button>`:''}<button class="chip" data-toggle-reviewed>${toggleLbl}</button></div></div>`;
-    if(!revs.length){list.innerHTML=head+'<div class="empty">Nothing to review ✓</div>';return;}
-    list.innerHTML=head+revs.map(r=>{
-      const sev=r.severity==='alert'?'alert':'detection';
-      const objs=(r.data?.objects||[]).map(cap).join(', ');
-      const title=r.data?.metadata?.title||objs||cap(r.severity);
+    if (!this._reviews.length) { list.innerHTML = '<div class="empty">No reviews in this window</div>'; return; }
+    const allRevs = [...this._reviews].sort((a, b) => b.start_time - a.start_time);
+    const unrev = allRevs.filter(r => !r.has_been_reviewed).length;
+    const revs = this._showReviewed ? allRevs : allRevs.filter(r => !r.has_been_reviewed);
+    const toggleLbl = this._showReviewed ? 'Hide reviewed' : 'Show reviewed';
+    const head = `<div class="rev-head"><span>${unrev} to review</span><div style="display:flex;gap:5px;align-items:center">${unrev ? `<button class="chip on" data-mark-all>Mark all</button>` : ''}<button class="chip" data-toggle-reviewed>${toggleLbl}</button></div></div>`;
+    if (!revs.length) { list.innerHTML = head + '<div class="empty">Nothing to review ✓</div>'; return; }
+    list.innerHTML = head + revs.map(r => {
+      const sev = r.severity === 'alert' ? 'alert' : 'detection';
+      const objs = (r.data?.objects || []).map(cap).join(', ');
+      const title = r.data?.metadata?.title || objs || cap(r.severity);
       // Frigate does not return detections in time order, so [0] was usually an
       // object from halfway through the period. Event ids start with their epoch,
       // which parseFloat reads, so sorting on that gives the earliest.
-      const dets=[...(r.data?.detections||[])].sort((a,b)=>parseFloat(a)-parseFloat(b));
-      const firstDet=dets[0]||'';
-      const reviewed=r.has_been_reviewed;
-      const thumb=firstDet?`<div class="rev-th"><img src="${this._media(firstDet,'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`:'';
-      return`<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time||''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed?' · ✓':' · tap'}</div></div>${reviewed?'':`<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
+      const dets = [...(r.data?.detections || [])].sort((a, b) => parseFloat(a) - parseFloat(b));
+      const firstDet = dets[0] || '';
+      const reviewed = r.has_been_reviewed;
+      const thumb = firstDet ? `<div class="rev-th"><img src="${this._media(firstDet, 'thumbnail.jpg')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>` : '';
+      return `<div class="rev ${sev}" data-review-id="${r.id}" data-review-open="${firstDet}" data-rv-s="${r.start_time}" data-rv-e="${r.end_time || ''}"><div class="rev-sev ${sev}"></div>${thumb}<div class="rev-inf"><div class="rev-t">${title}</div><div class="rev-m">${this._time(r.start_time)} · ${cap(sev)}${reviewed ? ' · ✓' : ' · tap'}</div></div>${reviewed ? '' : `<button class="ico" data-mark>${ICONS.reviews}</button>`}</div>`;
     }).join('');
   }
 
   // ── clip download range ───────────────────────────────────
   async _downloadRecRange(dlStart, dlEnd) {
-    const {clientId, cam} = this._cc();
-    const base = `/api/frigate/${clientId}/recording/${cam}/start/${dlStart}/end/${Math.min(dlEnd, dlStart+7200)}`;
+    const { clientId, cam } = this._cc();
+    const base = `/api/frigate/${clientId}/recording/${cam}/start/${dlStart}/end/${Math.min(dlEnd, dlStart + 7200)}`;
     const signed = await this._signed(base);
     const url = signed + (signed.includes('?') ? '&' : '?') + 'download=true';
     const a = document.createElement('a');
-    a.href = url; a.download = `${cam}_${this._time(dlStart).replace(/:/g,'-')}.mp4`;
-    document.body.appendChild(a); a.click(); a.remove();
+    a.href = url; a.download = `${cam}_${this._time(dlStart).replace(/:/g, '-')}.mp4`;
+      document.body.appendChild(a); a.click(); a.remove();
   }
 }
 
-// editor.js — FrigateModernHassCardEditor config panel
+// editor.js — FrigateModernHassCardEditor config panel (sectioned redesign)
+
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+// Editor tabs, in the order someone sets a card up: who it is, which cameras,
+// how they are arranged, how they play, how it looks, then per-camera buttons.
+const TABS = [
+  { id: 'general',    label: 'General' },
+  { id: 'cameras',    label: 'Cameras' },
+  { id: 'layout',     label: 'Layout' },
+  { id: 'live',       label: 'Live' },
+  { id: 'appearance', label: 'Style' },
+  { id: 'buttons',    label: 'Buttons' },
+];
 
 class FrigateModernHassCardEditor extends HTMLElement {
-  setConfig(c) { this._config=c; this._render(); }
+  setConfig(c) {
+    // Our own edits come back through here via Home Assistant. Re-rendering for
+    // them destroys focus and open state, so only rebuild for outside changes
+    // (YAML edit, first load).
+    const same = this._config && JSON.stringify(c) === JSON.stringify(this._config);
+    this._config = c;
+    if (!same) this._draft = {};
+    if (!same || !this.firstChild) this._render();
+  }
+
   set hass(h) {
     this._hass = h;
     // Only re-render when the camera entity list actually changes — prevents dropdown closing
     const key = this._frigateEntities().join(',');
-    if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); }
+    if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); return; }
+    // Keep the action pickers current without rebuilding the DOM.
+    this.querySelectorAll('ha-selector[data-button-action]').forEach(s => { s.hass = h; });
+  }
+
+  disconnectedCallback() {
+    // Closing the editor within the debounce window must not lose the label.
+    if (this._btnTimer) {
+      clearTimeout(this._btnTimer);
+      this._btnTimer = null;
+      this._commitButtons(this._btnSel(this._cfgCams()));
+    }
   }
 
   _frigateEntities() {
@@ -4073,88 +4232,326 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .sort();
   }
 
-  _render() {
-    const frigEntities = this._frigateEntities();
-    const allCamEntities = this._hass ? Object.keys(this._hass.states).filter(e=>e.startsWith('camera.')).sort() : [];
-    const entityList = frigEntities.length ? frigEntities : allCamEntities;
-
-    const cams = this._config?.cameras
+  // The camera list as the config currently describes it.
+  _cfgCams() {
+    return this._config?.cameras
       ? this._config.cameras
       : (this._config?.camera_entity ? [{ entity: this._config.camera_entity, name: '' }] : [{ entity: '', name: '' }]);
+  }
 
-    const opts = (sel) => entityList.map(e => `<option value="${e}" ${e===sel?'selected':''}>${e}</option>`).join('');
+  // ---- Small view helpers -------------------------------------------------
 
-    const layoutId = this._config?.grid_layout || 'auto';
+  // A titled card with an optional one-line explanation. Every group of
+  // settings lives in one, so the eye can find where a setting belongs.
+  _sec(title, desc, body) {
+    return `<section class="sec">
+      <header class="sec-head"><h3>${title}</h3>${desc ? `<p>${desc}</p>` : ''}</header>
+      <div class="sec-body">${body}</div>
+    </section>`;
+  }
+
+  _panel(id, html) {
+    const cur = TABS.some(t => t.id === this._tab) ? this._tab : 'general';
+    return `<div class="panel" data-panel="${id}" ${cur === id ? '' : 'hidden'}>${html}</div>`;
+  }
+
+  _radio(name, value, label, checked) {
+    return `<label class="radio-lbl"><input type="radio" name="${name}" value="${value}" ${checked ? 'checked' : ''}> ${label}</label>`;
+  }
+
+  _tabBar(camCount) {
+    const cur = TABS.some(t => t.id === this._tab) ? this._tab : 'general';
+    return `<div class="tabs" role="tablist">${TABS.map(t => `
+      <button type="button" role="tab" class="tab${cur === t.id ? ' sel' : ''}" data-tab="${t.id}">
+        ${t.label}${t.id === 'cameras' ? `<span class="badge">${camCount}</span>` : ''}
+      </button>`).join('')}</div>`;
+  }
+
+  _setTab(id) {
+    this._tab = id;
+    this.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('sel', x.dataset.tab === id));
+    this.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== id; });
+    this.querySelector('.ed-wrap')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  // ---- Render -------------------------------------------------------------
+
+  _render() {
+    const frigEntities = this._frigateEntities();
+    const allCamEntities = this._hass ? Object.keys(this._hass.states).filter(e => e.startsWith('camera.')).sort() : [];
+    const entityList = frigEntities.length ? frigEntities : allCamEntities;
+    const cams = this._cfgCams();
+    const cfg = this._config || {};
+
+    const opts = sel => entityList.map(e => `<option value="${e}" ${e === sel ? 'selected' : ''}>${e}</option>`).join('');
+
+    const layoutId = cfg.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
     // Offering a layout with fewer tiles than there are cameras is just wrong,
     // so hide those. If nothing is big enough, show everything rather than an
     // empty picker.
     const fitting = GRID_LAYOUTS.filter(l => l.id === 'auto' || l.tiles >= cams.length);
     const layoutChoices = fitting.length > 1 ? fitting : GRID_LAYOUTS;
-    // The tile number leads the row, so you read "tile 1 shows this camera",
-    // which is the direction people think in. Picking a camera that already
-    // sits in another tile swaps the two, so choosing is also positioning and
-    // no separate reorder control is needed.
-    const camRows = cams.map((c,i) => `
-      <div class="cr" data-row="${i}">
-        <span class="cnum" title="Tile ${i+1} in the grid">${i+1}</span>
-        <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
-          <option value="">Select camera</option>
-          ${opts(c.entity||'')}
-        </select>
-        <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
-        ${usingLayout ? '' : `
-        <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
-          ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
-        </select>`}
-        ${cams.length > 1 ? `
-        <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
-        ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
-        <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+
+    // ---- Cameras tab: one card per camera. The tile number leads, so you read
+    // "tile 1 shows this camera". Picking a camera that already sits in another
+    // tile swaps the two, so choosing is also positioning.
+    const camCards = cams.map((c, i) => `
+      <div class="cam" data-row="${i}">
+        <div class="cam-top">
+          <span class="cnum" title="Tile ${i + 1} in the grid">${i + 1}</span>
+          <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}" aria-label="Camera for tile ${i + 1}">
+            <option value="">Select camera</option>
+            ${opts(c.entity || '')}
+          </select>
+          ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
+        </div>
+        <div class="cam-opts">
+          <label class="mini grow"><span class="hint">Display name</span>
+            <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Optional" value="${esc(c.name)}">
+          </label>
+          ${usingLayout ? '' : `
+          <label class="mini"><span class="hint">Tile size</span>
+            <select class="cs" data-cam-span="${i}">
+              ${[1, 2, 3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1) === v ? 'selected' : ''}>${v}x${v}</option>`).join('')}
+            </select>
+          </label>`}
+          ${cams.length > 1 ? `
+          <div class="mini"><span class="hint">Timeline colour</span>
+            <div class="color-row">
+              <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
+              ${isHex(c.color) ? `<button type="button" class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
+            </div>
+          </div>` : ''}
+        </div>
       </div>`).join('');
 
-    const hiddenTabs = new Set(this._config?.hidden_tabs || []);
-    const tabCheck = (id, label) => `<label class="chk-lbl">
-      <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
-    </label>`;
+    const camerasPanel = this._sec(
+      'Cameras',
+      `${frigEntities.length ? 'Frigate cameras detected. ' : ''}Each card is one tile on the grid, in order.`,
+      `<div id="cam-list" class="cam-list">${camCards}</div>
+       <button type="button" class="add-btn" id="add-cam">+ Add camera</button>
+       ${cams.length > 1 ? '<small class="hint block">Pick a camera that is already in another tile to swap the two.</small>' : ''}
+       ${cams.length > 4 ? '<small class="hint block warn">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
+       ${usingLayout ? '<small class="hint block">Tile sizes come from the layout you chose. Set the layout to Automatic on the Layout tab to size tiles by hand.</small>' : ''}`
+    ) + this._sec(
+      'Next step',
+      '',
+      `<small class="hint block">Want quick actions under a camera? Add them on the <a href="#" class="lnk" data-goto="buttons">Buttons tab</a>. Arrange the grid on the <a href="#" class="lnk" data-goto="layout">Layout tab</a>.</small>`
+    );
 
-    const defaultView = this._config?.default_view || 'single';
-    const rotateOnLoad = this._config?.rotate_on_load === true;
-    const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
+    // ---- General tab
+    const generalPanel = this._sec(
+      'Card identity',
+      'How this card is named and found.',
+      `<label class="fld"><span class="field-label">Title</span>
+         <input name="title" class="tf" id="title" type="text" value="${esc(cfg.title)}" placeholder="My Camera">
+       </label>
+       <label class="fld"><span class="field-label">Subtitle</span>
+         <input name="subtitle" class="tf" id="subtitle" type="text" value="${esc(cfg.subtitle)}" placeholder="Frigate">
+       </label>
+       <label class="fld"><span class="field-label">URL ID</span>
+         <input name="url_id" class="tf" id="url_id" type="text" value="${esc(cfg.url_id)}" placeholder="Uses title if blank">
+         <small class="hint">Targets this card in dashboard URLs. If blank, the title becomes a lowercase hyphenated ID.</small>
+       </label>`
+    ) + this._sec(
+      'Timeline',
+      'What the recordings timeline shows.',
+      `<label class="fld"><span class="field-label">Window hours</span>
+         <input name="window_hours" class="tf narrow" id="window_hours" type="number" value="${cfg.window_hours || 6}" min="1" max="720">
+         <small class="hint">How far back the timeline reaches. Default is 6.</small>
+       </label>
+       <div class="fld"><span class="field-label">Time format</span>
+         <div class="radio-row">
+           ${[['auto', 'Follow Home Assistant'], ['12h', '12-hour'], ['24h', '24-hour']].map(([v, l]) => this._radio('time_format', v, l, (cfg.time_format || 'auto') === v)).join('')}
+         </div>
+       </div>`
+    ) + this._sec(
+      'Tabs on the card',
+      'Tick the ones you want to hide from the card itself.',
+      `<div class="chk-grid">
+         ${[['buttons', 'Buttons'], ['recordings', 'Recordings'], ['clips', 'Clips'], ['snapshot', 'Snapshots'], ['reviews', 'Reviews'], ['kept', 'Kept']].map(([id, label]) => {
+           const hiddenTabs = new Set(cfg.hidden_tabs || []);
+           return `<label class="chk-lbl"><input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id) ? 'checked' : ''}> ${label}</label>`;
+         }).join('')}
+       </div>`
+    );
+
+    // ---- Layout tab
+    const defaultView = cfg.default_view || 'single';
+    const layoutPanel = this._sec(
+      'Starting view',
+      'What the card opens with.',
+      `<div class="radio-row">
+         ${this._radio('default_view', 'single', 'Single camera', defaultView === 'single')}
+         ${this._radio('default_view', 'grid', 'Grid (all cameras)', defaultView === 'grid')}
+       </div>`
+    ) + this._sec(
+      'Grid layout',
+      'The numbers match the tile numbers on the Cameras tab. A layout sets the columns and tile sizes together.',
+      `<div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
+       <label class="chk-lbl stack-opt"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${cfg.stack_on_mobile !== false ? 'checked' : ''}> On a phone, stack the cameras one per row</label>
+       <small class="hint block">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone, for two cameras side by side or a small overview.</small>`
+    ) + (usingLayout ? '' : this._sec(
+      'Grid columns',
+      'Only used with the Automatic layout.',
+      `<div class="radio-row">
+         ${this._radio('grid_columns', 'auto', 'Automatic', (cfg.grid_columns || 'auto') === 'auto')}
+         ${[1, 2, 3, 4].map(n => this._radio('grid_columns', String(n), n === 1 ? '1 (stacked)' : String(n), String(cfg.grid_columns) === String(n))).join('')}
+       </div>
+       <small class="hint block">Automatic picks a column count from the number of cameras and the space available. On a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see above.</small>`
+    )) + this._sec(
+      'Size and panels',
+      '',
+      `<label class="fld"><span class="field-label">Maximum camera height (% of screen)</span>
+         <input name="stream_height" class="tf narrow" id="stream_height" type="number"
+           value="${cfg.stream_height || ''}" min="20" max="100" placeholder="e.g. 70">
+         <small class="hint">Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
+       </label>
+       <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${cfg.events_collapsed === true ? 'checked' : ''}> Start with the events panel hidden</label>
+       <small class="hint block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>`
+    );
+
+    // ---- Live tab
+    const livePanel = this._sec(
+      'Live view provider',
+      'How the live picture reaches the card.',
+      `<div class="radio-row">
+         ${this._radio('live_provider', 'hls', 'Home Assistant stream', (cfg.live_provider || 'hls') === 'hls')}
+         ${this._radio('live_provider', 'go2rtc', 'go2rtc, low latency (experimental)', cfg.live_provider === 'go2rtc')}
+       </div>
+       <small class="hint block">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+       <div class="fld subfld"><span class="field-label">go2rtc transport</span>
+         <div class="radio-row">
+           ${this._radio('go2rtc_mode', 'mse', 'MSE (recommended)', (cfg.go2rtc_mode || 'mse') === 'mse')}
+           ${this._radio('go2rtc_mode', 'webrtc', 'WebRTC only', cfg.go2rtc_mode === 'webrtc')}
+           ${this._radio('go2rtc_mode', 'auto', 'Automatic', cfg.go2rtc_mode === 'auto')}
+         </div>
+         <small class="hint">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network. Only applies when go2rtc is selected.</small>
+       </div>`
+    ) + this._sec(
+      'Camera rotation',
+      'Cycle through the cameras automatically.',
+      `<label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${cfg.rotate_on_load === true ? 'checked' : ''}> Auto-rotate on load</label>
+       <label class="fld"><span class="field-label">Rotate interval (seconds)</span>
+         <input name="rotate_seconds" class="tf narrow" id="rotate_seconds" type="number" value="${cfg.rotate_seconds ?? 0}" min="0">
+         <small class="hint">0 uses the default of ${DEFAULT_ROTATE_S}s.</small>
+       </label>`
+    );
+
+    // ---- Style tab
+    const appearancePanel = this._sec(
+      'Theme',
+      '',
+      `<div class="radio-row">
+         ${this._radio('theme', 'dark', 'Dark', (cfg.theme || 'dark') === 'dark')}
+         ${this._radio('theme', 'light', 'Light', cfg.theme === 'light')}
+         ${this._radio('theme', 'auto', 'Auto (browser)', cfg.theme === 'auto')}
+       </div>`
+    ) + this._sec(
+      'Colours',
+      'Tick a box to override the theme default. Untick to go back.',
+      `<div class="two-col">
+         <div>
+           <label class="chk-lbl"><input type="checkbox" id="use_accent" ${cfg.accent_color ? 'checked' : ''}> Custom accent</label>
+           <div class="color-row">
+             <input type="color" id="accent_color" class="big-col" value="${cfg.accent_color || '#3b82f6'}">
+             <span class="hint" id="accent_lbl">${cfg.accent_color || '#3b82f6'}</span>
+           </div>
+         </div>
+         <div>
+           <label class="chk-lbl"><input type="checkbox" id="use_bg" ${cfg.bg_color ? 'checked' : ''}> Custom background</label>
+           <div class="color-row">
+             <input type="color" id="bg_color" class="big-col" value="${cfg.bg_color || '#1c2233'}">
+             <span class="hint" id="bg_lbl">${cfg.bg_color || '#1c2233'}</span>
+           </div>
+         </div>
+       </div>`
+    );
 
     this.innerHTML = `<style>
       /* The editor lives in Home Assistant's own dialog, not in a shadow root of
-         ours, so it has to follow the user's theme. Fixed colours here meant an
-         unreadable panel on every dark theme. Each variable keeps a light
+         ours, so it has to follow the user's theme. Each variable keeps a light
          fallback for the rare theme that does not define it. */
-      .ed-wrap{display:flex;flex-direction:column;gap:14px;padding:6px 2px;
+      .ed-wrap{display:flex;flex-direction:column;gap:12px;padding:4px 0;
         font-family:var(--paper-font-body1_-_font-family,sans-serif);
         color:var(--primary-text-color,#111);
         --ed-dim:var(--secondary-text-color,#6b7280);
         --ed-line:var(--divider-color,#e5e7eb);
         --ed-field:var(--card-background-color,#fff);
         --ed-acc:var(--primary-color,#3b82f6);}
-      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
-      .section{border-top:1px solid var(--ed-line);padding-top:12px;}
-      .hint{color:var(--ed-dim);font-size:11px;}
-      .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
-      .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
-        background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
-      .ce,.cn{flex:1;padding:7px;min-width:0;}
-      .tf{width:100%;padding:7px;}
-      .cs{padding:7px 4px;flex-shrink:0;}
-      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
-      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
-      .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
-        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
-      .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
-        border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
-      .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
-      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--primary-text-color,#111);}
-      .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
+      .ed-wrap *{box-sizing:border-box;}
+
+      /* Tabs: one row that scrolls sideways rather than wrapping. */
+      .tabs{display:flex;gap:2px;border-bottom:1px solid var(--ed-line);overflow-x:auto;scrollbar-width:none;
+        position:sticky;top:0;z-index:2;background:var(--mdc-theme-surface,var(--card-background-color,#fff));}
+      .tabs::-webkit-scrollbar{display:none;}
+      .tab{padding:10px 14px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;flex-shrink:0;
+        background:transparent;color:var(--ed-dim);cursor:pointer;font-size:13px;white-space:nowrap;
+        display:flex;align-items:center;gap:6px;}
+      .tab:hover{color:var(--primary-text-color,#111);}
+      .tab.sel{color:var(--ed-acc);border-bottom-color:var(--ed-acc);font-weight:600;}
+      .badge{font-size:10px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;display:inline-flex;
+        align-items:center;justify-content:center;background:var(--ed-acc);color:var(--text-primary-color,#fff);font-weight:700;}
+
+      /* Both panels stay in the DOM and are only hidden, because the config is
+         read back from the form fields on every change. */
+      .panel{display:flex;flex-direction:column;gap:12px;}
+      .panel[hidden]{display:none;}
+
+      /* Section cards */
+      .sec{border:1px solid var(--ed-line);border-radius:10px;overflow:hidden;}
+      .sec-head{padding:10px 14px 8px;border-bottom:1px solid var(--ed-line);
+        background:color-mix(in srgb,var(--ed-dim) 7%,transparent);}
+      .sec-head h3{margin:0;font-size:13px;font-weight:600;}
+      .sec-head p{margin:2px 0 0;font-size:11px;color:var(--ed-dim);line-height:1.35;}
+      .sec-body{padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
+
+      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;}
+      .fld{display:block;}
+      .subfld{border-top:1px dashed var(--ed-line);padding-top:10px;}
+      .hint{color:var(--ed-dim);font-size:11px;line-height:1.4;}
+      .hint.block{display:block;}
+      .hint.warn{color:var(--warning-color,#b45309);}
+      .lnk{color:var(--ed-acc);text-decoration:none;font-weight:600;}
+      .lnk:hover{text-decoration:underline;}
+      fieldset{border:none;margin:0;padding:0;}
+
+      .tf,.ce,.cn,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:13px;padding:8px;
+        background:var(--ed-field);color:var(--primary-text-color,#111);width:100%;}
+      .tf.narrow{max-width:140px;}
+      .tf:focus,.ce:focus,.cn:focus,.cs:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
+      .fld .hint{display:block;margin-top:4px;}
+
+      .radio-row,.chk-row{display:flex;gap:6px 16px;flex-wrap:wrap;}
+      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;}
+      .chk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}
+      .two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+      .stack-opt{margin-top:2px;}
+
+      /* Camera cards */
+      .cam-list{display:flex;flex-direction:column;gap:10px;}
+      .cam{border:1px solid var(--ed-line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;}
+      .cam-top{display:flex;gap:8px;align-items:center;}
+      .cam-top .ce{flex:1;min-width:0;width:auto;}
+      .cam-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-left:34px;}
+      .mini{display:flex;flex-direction:column;gap:3px;}
+      .mini.grow{flex:1;min-width:140px;}
+      .mini .cs{width:auto;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-        background:transparent;color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
-      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
+        color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
+      .color-row{display:flex;align-items:center;gap:6px;min-height:34px;}
+      .ccol{width:34px;height:34px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
+      .big-col{width:44px;height:32px;border:none;padding:2px;border-radius:6px;cursor:pointer;background:transparent;}
+      .crst{width:24px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
+      .xb{padding:5px 9px;border:1px solid var(--error-color,#f87171);background:transparent;
+        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
+      .add-btn{align-self:flex-start;padding:7px 14px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
+        border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;}
+      .add-btn:hover{background:color-mix(in srgb,var(--ed-acc) 10%,transparent);}
+
+      /* Layout picker */
+      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;}
       .lay{padding:6px 5px 5px;border:1px solid var(--ed-line);border-radius:8px;background:transparent;
         color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
       .lay:hover{border-color:var(--ed-acc);}
@@ -4162,197 +4559,77 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .lay-prev{width:100%;aspect-ratio:4/3;display:grid;gap:2px;grid-auto-flow:dense;grid-auto-rows:1fr;}
       /* Neutral grey reads on a light and a dark theme alike. */
       .lay-prev span{background:rgba(128,128,128,.35);border-radius:2px;display:flex;align-items:center;
-        justify-content:center;font-size:9px;color:var(--primary-text-color,#475569);font-weight:700;}
+        justify-content:center;font-size:9px;font-weight:700;}
       .lay.sel .lay-prev span{background:var(--ed-acc);color:var(--text-primary-color,#fff);}
       .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
         color:var(--ed-dim);font-size:10px;text-align:center;border:1px dashed var(--ed-line);border-radius:4px;}
-      .lay-lbl{font-size:10px;color:var(--primary-text-color,#374151);text-align:center;line-height:1.2;}
+      .lay-lbl{font-size:10px;text-align:center;line-height:1.2;}
+
+      /* Buttons tab */
+      .button-camera{width:100%;max-width:480px;padding:8px;border:1px solid var(--ed-line);
+        border-radius:6px;background:var(--ed-field);color:var(--primary-text-color,#111);font-size:13px;}
+      .button-camera:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
+      .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;}
+      .slot{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--ed-line);border-radius:8px;}
+      .slot-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;}
+      .empty{padding:14px;text-align:center;border:1px dashed var(--ed-line);border-radius:8px;}
     </style>
     <div class="ed-wrap">
-      <div>
-        <span class="field-label">Cameras ${frigEntities.length ? '<small class="hint" style="font-weight:400">· Frigate cameras detected</small>' : ''}</span>
-        <div id="cam-list">${camRows}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <button class="add-btn" id="add-cam">+ Add camera</button>
-          <button class="add-btn" id="toggle-layout">Grid layout${usingLayout ? `: ${findLayout(layoutId)?.label || ''}` : ''}</button>
-        </div>
-        ${cams.length > 1 ? '<small class="hint" style="display:block;margin-top:4px">The number is the tile the camera fills in the grid. Pick a camera that is already in another tile to swap the two.</small>' : ''}
-        ${cams.length > 4 ? '<small class="hint" style="display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
-        <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
-          <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
-          <small class="hint">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
-          <div style="border-top:1px solid var(--divider-color);margin-top:10px;padding-top:8px">
-            <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> On a phone, stack the cameras one per row</label>
-            <small class="hint" style="display:block;margin-top:4px">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone too, for two cameras side by side or a small overview.</small>
-          </div>
-        </div>
-      </div>
-
-      <label><span class="field-label">Title (optional)</span>
-        <input name="title" class="tf" id="title" type="text" value="${this._config?.title||''}" placeholder="My Camera">
-      </label>
-      <label><span class="field-label">Subtitle</span>
-        <input name="subtitle" class="tf" id="subtitle" type="text" value="${this._config?.subtitle||''}" placeholder="Frigate">
-      </label>
-      <label><span class="field-label">URL ID (optional)</span>
-        <input name="url_id" class="tf" id="url_id" type="text" value="${this._config?.url_id||''}" placeholder="Uses title if blank">
-        <small class="hint">Used to target this card in dashboard URLs. If blank, the title is converted to a lowercase hyphenated ID.</small>
-      </label>
-
-      <div class="section">
-        <span class="field-label">View</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
-          <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
-        </div>
-        <div style="margin-top:8px">
-          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
-          <div class="radio-row">
-            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
-            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
-          </div>
-        </div>
-        <div style="margin-top:8px">
-          <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
-        </div>
-        <div style="margin-top:6px">
-          <label><span class="hint">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
-            <input name="rotate_seconds" class="tf" id="rotate_seconds" type="number" value="${this._config?.rotate_seconds??0}" min="0" style="margin-top:3px">
-          </label>
-        </div>
-      </div>
-      <div class="section">
-        <span class="field-label">Theme</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="theme" value="dark"  ${(this._config?.theme||'dark')==='dark' ?'checked':''}> Dark</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="light" ${this._config?.theme==='light'?'checked':''}> Light</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="auto"  ${this._config?.theme==='auto' ?'checked':''}> Auto (browser)</label>
-        </div>
-      </div>
-      <div class="section">
-        <span class="field-label">Colors</span>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
-          <div>
-            <label class="chk-lbl" style="margin-bottom:4px">
-              <input type="checkbox" id="use_accent" ${this._config?.accent_color?'checked':''}> Custom accent
-            </label>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input type="color" id="accent_color" value="${this._config?.accent_color||'#3b82f6'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span class="hint" id="accent_lbl">${this._config?.accent_color||'#3b82f6'}</span>
-            </div>
-          </div>
-          <div>
-            <label class="chk-lbl" style="margin-bottom:4px">
-              <input type="checkbox" id="use_bg" ${this._config?.bg_color?'checked':''}> Custom background
-            </label>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input type="color" id="bg_color" value="${this._config?.bg_color||'#1c2233'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span class="hint" id="bg_lbl">${this._config?.bg_color||'#1c2233'}</span>
-            </div>
-          </div>
-        </div>
-        <small class="hint">Check the box to activate. Uncheck to revert to theme default.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Hidden tabs</span>
-        <div class="chk-grid">
-          ${tabCheck('recordings','Recordings')}
-          ${tabCheck('clips','Clips')}
-          ${tabCheck('snapshot','Snapshots')}
-          ${tabCheck('reviews','Reviews')}
-          ${tabCheck('kept','Kept')}
-        </div>
-      </div>
-
-      <div class="section" ${usingLayout ? 'style="display:none"' : ''}>
-        <span class="field-label">Grid columns</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="auto" ${(this._config?.grid_columns||'auto')==='auto'?'checked':''}> Automatic</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="1" ${String(this._config?.grid_columns)==='1'?'checked':''}> 1 (stacked)</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="2" ${String(this._config?.grid_columns)==='2'?'checked':''}> 2</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
-        </div>
-        <small class="hint">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Events panel</span>
-        <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
-        <small class="hint" style="display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
-      </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Live view provider</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
-          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc, low latency (experimental)</label>
-        </div>
-        <small class="hint">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
-        <div style="margin-top:8px">
-          <span class="field-label">go2rtc transport</span>
-          <div class="radio-row">
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="mse" ${(this._config?.go2rtc_mode||'mse')==='mse'?'checked':''}> MSE (recommended)</label>
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${this._config?.go2rtc_mode==='auto'?'checked':''}> Automatic</label>
-          </div>
-          <small class="hint">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
-        </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Maximum camera height</span>
-        <input name="stream_height" class="tf" id="stream_height" type="number"
-          value="${this._config?.stream_height||''}" min="20" max="100"
-          placeholder="e.g. 70, blank = automatic">
-        <small class="hint">As a percentage of the screen height. Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
-      </div>
-
+      ${this._tabBar(cams.length)}
+      ${this._panel('general', generalPanel)}
+      ${this._panel('cameras', camerasPanel)}
+      ${this._panel('layout', layoutPanel)}
+      ${this._panel('live', livePanel)}
+      ${this._panel('appearance', appearancePanel)}
+      ${this._panel('buttons', this._buttonsSection(cams))}
     </div>`;
 
     this.querySelector('#add-cam')?.addEventListener('click', () => {
-      const cur = this._getCams(); cur.push({ entity:'', name:'' });
-      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
+      const cur = this._getCams(); cur.push({ entity: '', name: '' });
+      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
+      this._draft = {};
+      this._render(); this._dispatch();
     });
     this.querySelectorAll('[data-remove-cam]').forEach(b => b.addEventListener('click', e => {
       const cur = this._getCams(); cur.splice(Number(e.currentTarget.dataset.removeCam), 1);
-      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
+      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
+      this._draft = {};
+      this._render(); this._dispatch();
     }));
-    this.querySelector('#toggle-layout')?.addEventListener('click', () => {
-      this._layoutOpen = !this._layoutOpen; this._render();
-    });
-    // Picking a camera that is already shown in another tile moves it here and
-    // sends whatever stood here back to the tile it came from. Without this you
-    // would end up with the same camera twice and no way to place it. Runs
-    // before the generic change handler so it can take over the update.
     this.querySelectorAll('[data-reset-color]').forEach(b => b.addEventListener('click', () => {
       const i = Number(b.dataset.resetColor);
       const inp = this.querySelector(`[data-cam-color="${i}"]`);
       if (inp) inp.value = camSolid(i, this.querySelectorAll('[data-row]').length);
       this._u();
+      this._render();
     }));
+    // Picking a camera that is already shown in another tile moves it here and
+    // sends whatever stood here back to the tile it came from. Without this you
+    // would end up with the same camera twice and no way to place it. Runs
+    // before the generic change handler so it can take over the update.
     this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
       const i = Number(ev.currentTarget.dataset.camEntity);
       const picked = ev.currentTarget.value;
       if (!picked) return;
-      const before = cams;
+      // Read from the config, not the render-time snapshot: edits no longer
+      // trigger a re-render, so the snapshot can be stale.
+      const before = this._cfgCams();
       const j = before.findIndex((c, k) => k !== i && c.entity === picked);
       if (j < 0) return; // not in use elsewhere, nothing to swap
       ev.stopImmediatePropagation();
       const cur = this._getCams(); // keeps the sizes, which belong to the tile
       const nameOf = k => before[k]?.name || '';
-      // Name and colour belong to the camera, so they move with it; the size
-      // belongs to the tile and stays.
-      const withColor = (o, k) => { const x = { ...o }; delete x.color; if (isHex(before[k]?.color)) x.color = before[k].color; return x; };
-      cur[i] = withColor({ ...cur[i], entity: picked, name: nameOf(j) }, j);
-      cur[j] = withColor({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
+      // Name, colour and buttons belong to the camera, so they move with it;
+      // the size belongs to the tile and stays.
+      const carry = (o, k) => {
+        const x = { ...o }; delete x.color; delete x.buttons;
+        if (isHex(before[k]?.color)) x.color = before[k].color;
+        if (before[k]?.buttons?.length) x.buttons = before[k].buttons;
+        return x;
+      };
+      cur[i] = carry({ ...cur[i], entity: picked, name: nameOf(j) }, j);
+      cur[j] = carry({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
+      this._draft = {};
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
@@ -4360,16 +4637,176 @@ class FrigateModernHassCardEditor extends HTMLElement {
       this._config = { ...this._config, grid_layout: b.dataset.layout };
       this._render(); this._dispatch();
     }));
-    this.querySelectorAll('select,input').forEach(el => el.addEventListener('change', () => this._u()));
+    // Button labels are handled by _bindButtons (input event), so they are
+    // excluded here.
+    this.querySelectorAll('select,input:not([data-button-label])')
+      .forEach(el => el.addEventListener('change', () => this._u()));
+    // A camera picked or cleared changes the buttons section (pill names and
+    // the "pick a camera first" state). A select's change fires after it
+    // closes, so rebuilding here is safe.
+    this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', () => this._render()));
+    this.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => this._setTab(t.dataset.tab)));
+    this.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', e => {
+      e.preventDefault(); this._setTab(a.dataset.goto);
+    }));
+    this._bindButtons(cams);
     // prevent click outside from closing select while user is choosing
     this.querySelectorAll('select').forEach(sel => sel.addEventListener('mousedown', e => e.stopPropagation()));
     // sync color picker label as user drags
-    ['accent','bg'].forEach(key => {
+    ['accent', 'bg'].forEach(key => {
       const picker = this.querySelector(`#${key}_color`);
-      const lbl    = this.querySelector(`#${key}_lbl`);
+      const lbl = this.querySelector(`#${key}_lbl`);
       if (picker && lbl) picker.addEventListener('input', () => { lbl.textContent = picker.value; });
     });
   }
+
+  // ---- Camera buttons -----------------------------------------------------
+
+  _btnSel(cams) { return Math.max(0, Math.min(this._btnCam ?? 0, cams.length - 1)); }
+
+  // Always four slots per camera. Partly filled slots survive here even though
+  // only complete ones (label and action) are saved to the config.
+  _slots(i, cams) {
+    this._draft ??= {};
+    if (!this._draft[i]) {
+      const arr = Array.from({ length: 4 }, (_, j) => ({
+        label: cams[i]?.buttons?.[j]?.label || '',
+        action: cams[i]?.buttons?.[j]?.action,
+      }));
+      // Show one slot by default, or as many as already hold something.
+      // `shown` lives on the array so it resets together with the draft.
+      const last = arr.reduce((n, b, j) => (b.label || b.action ? j + 1 : n), 0);
+      arr.shown = Math.max(1, last);
+      this._draft[i] = arr;
+    }
+    return this._draft[i];
+  }
+
+  _buttonsSection(cams) {
+    const sel = this._btnSel(cams);
+    const nameOf = (c, i) => c.name || (c.entity || '').replace(/^camera\./, '').replace(/_/g, ' ') || `Camera ${i + 1}`;
+    const cameraOptions = cams.map((c, i) => {
+      const count = c.buttons?.length || 0;
+      return `<option value="${i}" ${i === sel ? 'selected' : ''}>${i + 1}. ${esc(nameOf(c, i))}${count ? ` (${count} button${count === 1 ? '' : 's'})` : ''}</option>`;
+    }).join('');
+
+    const cam = cams[sel];
+    let body = '', add = '';
+    if (!cam?.entity) {
+      body = `<div class="empty"><small class="hint">Pick a camera on the <a href="#" class="lnk" data-goto="cameras">Cameras tab</a> first.</small></div>`;
+    } else {
+      const slots = this._slots(sel, cams);
+      body = `<div class="slots">${slots.slice(0, slots.shown).map((b, j) => `
+        <div class="slot">
+          <div class="slot-head">
+            <span>Button ${j + 1}</span>
+            <button type="button" class="xb" data-clear-slot="${j}">${slots.shown > 1 ? 'Remove' : 'Clear'}</button>
+          </div>
+          <input class="tf" data-button-label="${j}" placeholder="Label" value="${esc(b.label)}">
+          <ha-selector data-button-action="${j}"></ha-selector>
+        </div>`).join('')}</div>`;
+      if (slots.shown < 4) add = '<button type="button" class="add-btn" id="add-slot">+ Add another button</button>';
+    }
+
+    return this._sec(
+      '1. Choose a camera',
+      cams.length > 1 ? 'Buttons belong to one camera each.' : 'Buttons appear under this camera on the card.',
+      cams.length > 1
+        ? `<select class="button-camera" data-btn-cam aria-label="Camera to configure buttons for">${cameraOptions}</select>`
+        : `<small class="hint">${esc(nameOf(cams[0] || {}, 0))}</small>`
+    ) + this._sec(
+      '2. Set up its buttons',
+      'Up to four per camera. A button is saved once it has both a label and an action.',
+      `${body}${add}`
+    );
+  }
+
+  _bindButtons(cams) {
+    this.querySelectorAll('[data-btn-cam]').forEach(select => select.addEventListener('change', () => {
+      this._btnCam = Number(select.value);
+      this._render();
+    }));
+
+    const i = this._btnSel(cams);
+    if (!cams[i]?.entity) return;
+    const slots = this._slots(i, cams);
+
+    // Every config change makes Home Assistant rebuild the live preview card, so
+    // typing must not commit per keystroke. The draft updates immediately; the
+    // config is written after a pause, or at once when the field loses focus.
+    this.querySelectorAll('[data-button-label]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        slots[Number(inp.dataset.buttonLabel)].label = inp.value;
+        clearTimeout(this._btnTimer);
+        this._btnTimer = setTimeout(() => this._commitButtons(i), 1000);
+      });
+      inp.addEventListener('change', () => {
+        clearTimeout(this._btnTimer);
+        this._commitButtons(i);
+      });
+    });
+
+    this.querySelectorAll('ha-selector[data-button-action]').forEach(selector => {
+      const j = Number(selector.dataset.buttonAction);
+      selector.hass = this._hass;
+      selector.selector = { action: {} };
+      selector.value = slots[j].action;
+      selector.addEventListener('value-changed', e => {
+        e.stopPropagation();
+        const v = e.detail.value;
+        // ha-selector is a controlled component: it draws whatever .value says.
+        // Without feeding the new value back it never shows the choice (and the
+        // action editor inside restarts from empty on its next change).
+        selector.value = v;
+        if (JSON.stringify(v) === JSON.stringify(slots[j].action)) return;
+        slots[j].action = v;
+        clearTimeout(this._btnTimer); // the commit below carries the current label too
+        this._commitButtons(i);
+      });
+    });
+
+    this.querySelectorAll('[data-clear-slot]').forEach(b => b.addEventListener('click', () => {
+      const j = Number(b.dataset.clearSlot);
+      clearTimeout(this._btnTimer);
+      if (slots.shown > 1) {
+        // Drop the slot and close the gap, so the remaining ones keep their order.
+        slots.splice(j, 1);
+        slots.push({ label: '', action: undefined });
+        slots.shown--;
+      } else {
+        slots[j] = { label: '', action: undefined };
+      }
+      this._commitButtons(i);
+      this._render();
+    }));
+
+    this.querySelector('#add-slot')?.addEventListener('click', () => {
+      slots.shown = Math.min(4, slots.shown + 1);
+      this._render();
+    });
+  }
+
+  _commitButtons(i) {
+    const complete = (this._draft?.[i] || [])
+      .filter(b => b.label.trim() && b.action)
+      .map(b => ({ label: b.label.trim(), action: b.action }));
+    // Nothing saved has changed (e.g. a label typed into a slot that has no
+    // action yet), so do not touch the config and do not reload the card.
+    const saved = this._config?.cameras?.[i]?.buttons || [];
+    if (JSON.stringify(saved) === JSON.stringify(complete)) return;
+    const cams = this._getCams();
+    cams[i] = { ...cams[i] };
+    if (complete.length) cams[i].buttons = complete; else delete cams[i].buttons;
+    this._config = { ...this._config, cameras: cams };
+    this._u();
+    const option = this.querySelector(`[data-btn-cam] option[value="${i}"]`);
+    if (option) {
+      const name = cams[i].name || (cams[i].entity || '').replace(/^camera\./, '').replace(/_/g, ' ') || `Camera ${i + 1}`;
+      option.textContent = `${i + 1}. ${name}${complete.length ? ` (${complete.length} button${complete.length === 1 ? '' : 's'})` : ''}`;
+    }
+  }
+
+  // ---- Layout helpers -----------------------------------------------------
 
   // What the current settings produce at a given card width. The card does this
   // same sum; showing it beats making someone resize a phone to find out.
@@ -4405,6 +4842,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
       <div class="lay-lbl">${l.label}</div></button>`;
   }
 
+  // ---- Config assembly ----------------------------------------------------
+
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
     return rows.map((r, idx) => {
@@ -4413,30 +4852,36 @@ class FrigateModernHassCardEditor extends HTMLElement {
       // one, so compare it with the default for this place in the list.
       const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
       const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
+      // Buttons live in the config, not the DOM.
+      const buttons = this._config?.cameras?.[idx]?.buttons || [];
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
         ...(color ? { color } : {}),
+        ...(buttons.length ? { buttons } : {}),
       };
     });
   }
+
   _u() {
-    const g = id => this.querySelector('#'+id)?.value?.trim() || '';
+    const g = id => this.querySelector('#' + id)?.value?.trim() || '';
     const cams = this._getCams().filter(c => c.entity);
     const c = { ...this._config };
-    if (cams.length > 1) { c.cameras = cams; delete c.camera_entity; }
+    // A single camera with buttons keeps the cameras array, otherwise its
+    // buttons would be thrown away by the camera_entity shorthand.
+    if (cams.length > 1 || cams.some(cam => cam.buttons?.length)) { c.cameras = cams; delete c.camera_entity; }
     else if (cams.length === 1) { c.camera_entity = cams[0].entity; delete c.cameras; }
-    const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
-    if(t) c.title=t; else delete c.title;
-    const urlId=g('url_id');
-    if(urlId) c.url_id=urlId; else delete c.url_id;
-    if(s) c.subtitle=s; else delete c.subtitle;
+    const t = g('title'), s = g('subtitle'), w = g('window_hours'), r = g('rotate_seconds');
+    if (t) c.title = t; else delete c.title;
+    const urlId = g('url_id');
+    if (urlId) c.url_id = urlId; else delete c.url_id;
+    if (s) c.subtitle = s; else delete c.subtitle;
     // Only a deliberate choice goes into the YAML. Writing the default along with
     // every save froze each editor-made card at the old default of 24 hours.
-    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
-    c.rotate_seconds = Number(r)||0;
+    if (w && Number(w) !== 6) c.window_hours = Number(w); else delete c.window_hours;
+    c.rotate_seconds = Number(r) || 0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked
       ? (this.querySelector('#accent_color')?.value || null) : null;
@@ -4445,8 +4890,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
     // theme
     c.theme = this.querySelector('input[name="theme"]:checked')?.value || 'dark';
     // default view
-    const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
-    c.default_view = dv;
+    c.default_view = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
     const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
     if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
@@ -4459,14 +4903,21 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.stream_height = sh ? Number(sh) : null;
     c.events_collapsed = this.querySelector('#events_collapsed')?.checked === true;
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
-    const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
-    c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
+    // The columns section is not rendered while a layout is active, so keep
+    // whatever was saved rather than overwriting it with the 'auto' fallback.
+    const gcEl = this.querySelector('input[name="grid_columns"]:checked');
+    if (gcEl) c.grid_columns = gcEl.value === 'auto' ? 'auto' : Number(gcEl.value);
     c.stack_on_mobile = this.querySelector('#stack_on_mobile')?.checked !== false;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
-    this._config=c; this._dispatch();
+    this._config = c; this._dispatch();
   }
-  _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }
+
+  _dispatch() {
+    this.dispatchEvent(new CustomEvent('config-changed', {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
+  }
 }
 
 // index.js — registers custom elements and announces card to HA
