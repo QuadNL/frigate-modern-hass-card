@@ -126,7 +126,6 @@ export class FrigateModernHassCardEditor extends HTMLElement {
             <option value="">Select camera</option>
             ${opts(c.entity || '')}
           </select>
-          ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
         </div>
         <div class="cam-opts">
           <label class="mini grow"><span class="hint">Display name</span>
@@ -145,6 +144,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
               ${isHex(c.color) ? `<button type="button" class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
             </div>
           </div>` : ''}
+            ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
+
         </div>
       </div>`).join('');
 
@@ -367,20 +368,21 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .stack-opt{margin-top:2px;}
 
       /* Camera cards */
-      .cam-list{display:flex;flex-direction:column;gap:10px;}
-      .cam{border:1px solid var(--ed-line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;}
-      .cam-top{display:flex;gap:8px;align-items:center;}
-      .cam-top .ce{flex:1;min-width:0;width:auto;}
-      .cam-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-left:34px;}
-      .mini{display:flex;flex-direction:column;gap:3px;}
-      .mini.grow{flex:1;min-width:140px;}
-      .mini .cs{width:auto;}
+      .cam-list{display:flex;flex-direction:column;gap:2px;overflow-x:auto;}
+      .cam{display:flex;gap:8px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid var(--ed-line);}
+      .cam-top,.cam-opts{display:contents;}
+      .cam .ce{flex:1 1 220px;max-width:300px;min-width:0;width:100%;}
+      .cam-opts .mini{display:block;flex:0 1 auto;min-width:0;}
+      .cam-opts .mini .hint{display:none;}
+      .cam-opts .mini.grow{flex:1 1 140px;min-width:80px;}
+      .cam-opts .cn{width:100%;}
+      .cam-opts .cs{width:auto;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
         color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
-      .color-row{display:flex;align-items:center;gap:6px;min-height:34px;}
-      .ccol{width:34px;height:34px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
+      .color-row{display:flex;align-items:center;gap:4px;min-height:30px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
       .big-col{width:44px;height:32px;border:none;padding:2px;border-radius:6px;cursor:pointer;background:transparent;}
-      .crst{width:24px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
+      .crst{width:22px;height:28px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
       .xb{padding:5px 9px;border:1px solid var(--error-color,#f87171);background:transparent;
         color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{align-self:flex-start;padding:7px 14px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
