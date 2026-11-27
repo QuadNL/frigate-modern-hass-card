@@ -142,6 +142,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       <label><span class="field-label">Subtitle</span>
         <input name="subtitle" class="tf" id="subtitle" type="text" value="${this._config?.subtitle||''}" placeholder="Frigate">
       </label>
+      <label><span class="field-label">URL ID (optional)</span>
+        <input name="url_id" class="tf" id="url_id" type="text" value="${this._config?.url_id||''}" placeholder="Uses title if blank">
+        <small class="hint">Used to target this card in dashboard URLs. If blank, the title is converted to a lowercase hyphenated ID.</small>
+      </label>
 
       <div class="section">
         <span class="field-label">View</span>
@@ -375,6 +379,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     else if (cams.length === 1) { c.camera_entity = cams[0].entity; delete c.cameras; }
     const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
     if(t) c.title=t; else delete c.title;
+    const urlId=g('url_id');
+    if(urlId) c.url_id=urlId; else delete c.url_id;
     if(s) c.subtitle=s; else delete c.subtitle;
     // Only a deliberate choice goes into the YAML. Writing the default along with
     // every save froze each editor-made card at the old default of 24 hours.

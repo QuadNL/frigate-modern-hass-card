@@ -9,6 +9,11 @@ export class FrigateModernHassCard extends HTMLElement {
     this.attachShadow({ mode:'open' });
     this._hass = null; this._config = null; this._started = false;
     this._activeCamIdx = 0;
+    this._urlViewMode = null;
+    this._urlId = '';
+    this._urlWriteEnabled = false;
+    this._suppressUrlWrite = false;
+    this._onLocationChanged = () => this._syncUrlState();
     this._camCache = {};     // entity → mkCamState()
     this._viewMode = 'single';   // 'single' | 'grid'
     this._eventsMode = 'camera'; // 'camera' | 'all'
@@ -42,9 +47,15 @@ export class FrigateModernHassCard extends HTMLElement {
       cameras = [{ entity:config.camera_entity, name:config.title||null, span:normSpan() }];
     else throw new Error('camera_entity or cameras[] required');
 
+    this._urlId = this._slugUrlId(config.url_id || config.title);
+    const urlState = this._readUrlState(cameras);
+    this._urlViewMode = urlState.view;
+    if (urlState.cameraIndex >= 0) this._activeCamIdx = urlState.cameraIndex;
+
     this._config = {
       cameras,
       title: config.title || null,
+      url_id: config.url_id || null,
       subtitle: config.subtitle || null,
       window_hours: config.window_hours || 6,
       // 'auto' follows the 12/24 hour choice in the user's Home Assistant
@@ -140,12 +151,18 @@ export class FrigateModernHassCard extends HTMLElement {
   // to be brought back here, or the card returns looking normal with no picture,
   // no event refresh and no live updates (#15).
   connectedCallback() {
+    window.addEventListener('location-changed', this._onLocationChanged);
+    window.addEventListener('popstate', this._onLocationChanged);
+    window.addEventListener('hashchange', this._onLocationChanged);
     if (!this._suspended) return; // first attach: the hass setter starts the card
     this._suspended = false;
     this._resume();
   }
 
   disconnectedCallback() {
+    window.removeEventListener('location-changed', this._onLocationChanged);
+    window.removeEventListener('popstate', this._onLocationChanged);
+    window.removeEventListener('hashchange', this._onLocationChanged);
     this._ptzStop('card left the page');
     this._talkClose('card left the page');
     this._moreToggle(false);
@@ -166,6 +183,59 @@ export class FrigateModernHassCard extends HTMLElement {
   _startRefresh() {
     clearInterval(this._refresh);
     this._refresh = setInterval(() => { if (this._isNowWindow()) this._loadWindow(true); }, this._config.refresh_seconds*1000);
+  }
+  _slugUrlId(value) {
+    return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+  _readUrlState(cameras = this._config?.cameras || []) {
+    const params = new URLSearchParams(window.location.search);
+    const hashQuery = window.location.hash.split('?').slice(1).join('?');
+    if (hashQuery) {
+      for (const [key, value] of new URLSearchParams(hashQuery)) {
+        if (!params.has(key)) params.set(key, value);
+      }
+    }
+    const requestedId = params.get('fmhc_id');
+    if (requestedId && requestedId !== this._urlId)
+      return { view: null, cameraIndex: -1, matches: false };
+    const requestedView = params.get('fmhc_view');
+    const requestedCamera = params.get('fmhc_camera');
+    return {
+      view: ['single', 'grid'].includes(requestedView) ? requestedView : null,
+      cameraIndex: requestedCamera ? cameras.findIndex(camera => camera.entity === requestedCamera) : -1,
+      matches: true,
+    };
+  }
+  _writeUrlState() {
+    if (!this._urlWriteEnabled || this._suppressUrlWrite || !this._config || !this._activeCam) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('fmhc_id') && url.searchParams.get('fmhc_id') !== this._urlId) return;
+    url.searchParams.set('fmhc_view', this._viewMode);
+    url.searchParams.set('fmhc_camera', this._activeCam.entity);
+    if (this._urlId) url.searchParams.set('fmhc_id', this._urlId);
+    window.history.replaceState(window.history.state, '', url.href);
+  }
+  _syncUrlState() {
+    if (!this._started || !this._config) return;
+    const urlState = this._readUrlState();
+    if (!urlState.matches) return;
+    this._urlViewMode = urlState.view;
+    const view = urlState.view || this._config.default_view;
+    const cameraIndex = urlState.cameraIndex >= 0 ? urlState.cameraIndex : 0;
+    this._suppressUrlWrite = true;
+    if (view === 'grid' && this._config.cameras.length > 1) {
+      this._activeCamIdx = cameraIndex;
+      if (this._viewMode !== 'grid') this._setViewMode('grid');
+      else this._renderCamSwitcher();
+      this._suppressUrlWrite = false;
+      return;
+    }
+    const wasGrid = this._viewMode === 'grid';
+    if (wasGrid) this._setViewMode('single', { mount: false });
+    if (cameraIndex !== this._activeCamIdx) this._switchCamera(cameraIndex);
+    else if (wasGrid) this._mountEngine();
+    this._suppressUrlWrite = false;
   }
   _resume() {
     if (!this._config || !this._hass) return;
@@ -197,7 +267,8 @@ export class FrigateModernHassCard extends HTMLElement {
     await this._discoverAll();
     const now = Math.floor(Date.now()/1000);
     this._winEnd = now; this._winStart = now - this._config.window_hours*3600;
-    const startInGrid = this._config.default_view === 'grid' && this._config.cameras.length > 1;
+    const initialView = this._urlViewMode || this._config.default_view;
+    const startInGrid = initialView === 'grid' && this._config.cameras.length > 1;
     if (startInGrid) this._setViewMode('grid');
     // Only start the single view player when it is the one on screen. Mounting
     // it behind the grid opened a stream nobody could see, competing with the
@@ -209,6 +280,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._startRefresh();
     const shouldRotate = this._config.rotate_on_load || this._config.rotate_seconds > 0;
     if (shouldRotate && this._config.cameras.length > 1) this._startRotate();
+    this._urlWriteEnabled = true;
   }
 
   // Discover all cameras in parallel for faster startup
@@ -1341,6 +1413,7 @@ export class FrigateModernHassCard extends HTMLElement {
     this._applyBrowse();
     this.shadowRoot.querySelectorAll('[data-viewmode]').forEach(p =>
       p.classList.toggle('active', p.dataset.viewmode === mode));
+    this._writeUrlState();
   }
 
   // ── camera switching ──────────────────────────────────────
@@ -1357,6 +1430,7 @@ export class FrigateModernHassCard extends HTMLElement {
       this._camCache[prevEnt].recordings = this._recordings;
     }
     this._activeCamIdx = idx;
+    this._writeUrlState();
     const newEnt = this._activeCam?.entity;
     if (!this._camCache[newEnt]) this._camCache[newEnt] = mkCamState();
     // Start the stream before waiting on anything else. The picture is what the

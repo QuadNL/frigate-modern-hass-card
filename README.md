@@ -98,6 +98,27 @@ default_view: single     # or 'grid'
 | `talk` | boolean | `true` | Talk through cameras that support two-way audio. Set `false` on the card or on one camera to hide it |
 | `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
 
+### URL deep links
+
+Add `fmhc_view` and `fmhc_camera` to a Home Assistant dashboard URL to choose the card's view and camera. 
+Add `fmhc_id` to target one card when a dashboard contains several modern cards.
+  By default, the card ID is made from its title: lowercase, with spaces and punctuation changed to hyphens. For example,
+  `title: Kitchen Pan` becomes `kitchen-pan`. 
+Set `url_id` to choose a different ID or distinguish cards with the same title.
+
+```text
+/dashboard-home/asfa?fmhc_id=kitchen-pan&fmhc_view=grid
+/dashboard-home/asfa?fmhc_id=kitchen-pan&fmhc_view=single&fmhc_camera=camera.garage_backdoor
+```
+
+`fmhc_view` accepts `single` or `grid`. `fmhc_camera` must exactly match an
+entity ID in the targeted card's `cameras` list. Unknown camera IDs are ignored.
+
+If no valid view parameter is present, the card uses `default_view` as usual.
+Selecting a camera or switching views updates these parameters in the browser
+URL, so the current selection can be bookmarked. URL changes do not edit the
+saved card configuration.
+
 ### Grid layout
 
 Easiest in the visual editor: **Grid layout** shows each arrangement as numbered
