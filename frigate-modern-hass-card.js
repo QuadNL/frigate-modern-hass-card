@@ -311,6 +311,11 @@ const STYLES = `
   .ph{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--c-text4);background:linear-gradient(145deg,#1a2540,#0d1520);}
   .ph svg{width:40px;height:40px;opacity:.35;}
   .ph-spin{width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--c-acc);border-radius:50%;animation:spin .8s linear infinite;}
+  .cam-offline{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    background:linear-gradient(145deg,#202633,#10141b);color:var(--c-text2);font-size:14px;font-weight:600;letter-spacing:.02em;}
+  .cam-offline svg{width:42px;height:42px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;opacity:.72;}
+  .grid-slot .cam-offline{z-index:2;font-size:clamp(10px,4cqw,14px);gap:clamp(5px,2cqw,10px);}
+  .grid-slot .cam-offline svg{width:clamp(24px,12cqw,42px);height:clamp(24px,12cqw,42px);}
   @keyframes spin{to{transform:rotate(360deg);}}
   .feed-top{position:absolute;top:10px;left:12px;right:12px;z-index:6;display:flex;align-items:center;gap:8px;}
   .btn{display:inline-flex;align-items:center;gap:5px;background:rgba(15,21,40,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;}
@@ -1395,13 +1400,16 @@ class FrigateModernHassCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    this._syncCameraAvailability();
     if (!this._started) { this._started = true; this._start(); return; }
     // keep active stream in sync
-    if (this._engine) {
-      try { this._engine.hass = hass; } catch (_) { }
+    const ent = this._activeCam?.entity;
+    // Keep the last frame/player undisturbed during the short offline debounce.
+    // Some camera integrations briefly report unavailable while reconnecting.
+    if (this._engine && ent && !this._cameraUnavailable(ent)) {
+      try { this._engine.hass = hass; } catch(_) {}
       // Only update stateObj when entity state actually changes (e.g. offline→online).
       // Resetting stateObj on every hass update restarts the stream and resets muted state.
-      const ent = this._activeCam?.entity;
       const newState = hass.states[ent]?.state;
       if (ent && newState !== this._lastEngineState) {
         this._lastEngineState = newState;
@@ -1449,6 +1457,10 @@ class FrigateModernHassCard extends HTMLElement {
     this._suspended = this._started;
     this._resumeRotate = !!this._rotateTimer;
     this._resumeAtNow = this._started && this._isNowWindow();
+    for (const entry of this._cameraAvailability?.values() || []) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
     if (this._unsub) { try { this._unsub.then(u => u && u()); } catch (_) { } this._unsub = null; }
@@ -1583,6 +1595,73 @@ class FrigateModernHassCard extends HTMLElement {
     return { ...raw, attributes: attrs };
   }
 
+  _cameraUnavailable(entity) {
+    const state = this._hass?.states?.[entity]?.state;
+    return !state || state === 'unavailable' || state === 'unknown';
+  }
+  _syncCameraAvailability() {
+    this._cameraAvailability ||= new Map();
+    const entities = this._config.cameras.map(c => c.entity).filter(Boolean);
+    for (const entity of entities) {
+      const offline = this._cameraUnavailable(entity);
+      let entry = this._cameraAvailability.get(entity);
+      if (!entry) { entry = { offline: false, timer: null }; this._cameraAvailability.set(entity, entry); }
+      if (offline) {
+        if (entry.timer == null && !entry.offline) {
+          entry.timer = setTimeout(() => {
+            entry.timer = null;
+            if (!this._cameraUnavailable(entity)) return;
+            entry.offline = true;
+            this._showCameraUnavailable(entity);
+          }, 10000);
+        }
+      } else {
+        clearTimeout(entry.timer);
+        entry.timer = null;
+        if (entry.offline) {
+          entry.offline = false;
+          const cache = this._camCache[entity];
+          if (cache) cache.noGo2rtc = false;
+          if (this._viewMode === 'grid') {
+            const idx = this._config.cameras.findIndex(c => c.entity === entity);
+            if (idx >= 0) this._restoreGridSlot(idx);
+          } else if (this._activeCam?.entity === entity) {
+            this._mountEngine();
+          }
+        }
+      }
+    }
+    for (const [entity, entry] of this._cameraAvailability) {
+      if (entities.includes(entity)) continue;
+      clearTimeout(entry.timer);
+      this._cameraAvailability.delete(entity);
+    }
+  }
+  _showCameraUnavailable(entity) {
+    const message = `<div class="cam-offline" role="status" aria-label="Camera unavailable">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M7 14h23a4 4 0 0 1 4 4v2l8-5v18l-8-5v2a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"/><path d="m8 8 32 32"/></svg>
+      <span>Cam Unavailable</span>
+    </div>`;
+    if (this._viewMode === 'grid') {
+      const idx = this._config.cameras.findIndex(c => c.entity === entity);
+      const slot = this.shadowRoot.querySelectorAll('#cam-grid .grid-slot:not(.placeholder)')[idx];
+      if (!slot || idx < 0) return;
+      this._stopSlotPlayer(slot);
+      slot.innerHTML = `${message}${this._gridLabel(idx)}`;
+      slot.dataset.camUnavailable = 'true';
+      return;
+    }
+    if (this._activeCam?.entity !== entity) return;
+    this._engineSeq = (this._engineSeq || 0) + 1;
+    this._teardownGo2rtc();
+    this._engine = null;
+    const slot = this.shadowRoot.querySelector('#engine');
+    if (slot) {
+      slot.innerHTML = message;
+      slot.dataset.camUnavailable = 'true';
+    }
+  }
+
   // Switching cameras used to blank the picture to a spinner, which reads as
   // something breaking rather than something changing. Keep the last frame on
   // screen instead and fade the new stream in over it. A canvas copy costs
@@ -1642,6 +1721,11 @@ class FrigateModernHassCard extends HTMLElement {
   async _mountEngine() {
     const slot = this.shadowRoot.querySelector('#engine'); if (!slot) return;
     const entity = this._activeCam?.entity; if (!entity) return;
+    if (this._cameraAvailability?.get(entity)?.offline) {
+      this._showCameraUnavailable(entity);
+      return;
+    }
+    delete slot.dataset.camUnavailable;
     const frame = this._captureFrame(); // before anything is torn down
     const spinner = '<div class="ph"><div class="ph-spin"></div></div>';
     slot.innerHTML = frame ? '' : spinner;
@@ -2124,13 +2208,13 @@ class FrigateModernHassCard extends HTMLElement {
     const cache = this._camCache[entity];
     const clientId = cache?.clientId, cam = cache?.cam;
     const giveUp = () => {
-      if (this._gridToken !== token || !slot.isConnected) return;
+      if (this._gridToken !== token || !slot.isConnected || this._cameraAvailability?.get(entity)?.offline) return;
       this._mountGridHaStream(slot, entity);
     };
     if (!clientId || !cam) { giveUp(); return; }
 
     const src = await this._signed(this._go2rtcPaths(clientId, cam)[0]);
-    if (this._gridToken !== token || !slot.isConnected) return;
+    if (this._gridToken !== token || !slot.isConnected || this._cameraAvailability?.get(entity)?.offline) return;
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
@@ -3377,6 +3461,7 @@ class FrigateModernHassCard extends HTMLElement {
     const cam = this._config.cameras[idx];
     if (!slot || !cam) { this._mountGrid(); return; }
     this._stopSlotPlayer(slot);
+    delete slot.dataset.camUnavailable;
     slot.innerHTML = this._gridLabel(idx);
     if (this._config.live_provider === 'go2rtc') {
       slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
@@ -4252,6 +4337,10 @@ class FrigateModernHassCardEditor extends HTMLElement {
       this._btnTimer = null;
       this._commitButtons(this._btnSel(this._cfgCams()));
     }
+    const cameraStates = Object.keys(h.states).filter(e => e.startsWith('camera.')).sort()
+      .map(e => `${e}:${h.states[e].state === 'unavailable' || h.states[e].state === 'unknown' ? 'offline' : 'online'}`);
+    const key = `${this._frigateEntities().join(',')}|${cameraStates.join(',')}`;
+    if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); }
   }
 
   _frigateEntities() {
@@ -4271,8 +4360,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
       ? this._config.cameras
       : (this._config?.camera_entity ? [{ entity: this._config.camera_entity, name: '' }] : [{ entity: '', name: '' }]);
   }
-
-  // ---- Small view helpers -------------------------------------------------
 
   // A titled card with an optional one-line explanation. Every group of
   // settings lives in one, so the eye can find where a setting belongs.
@@ -4316,8 +4403,19 @@ class FrigateModernHassCardEditor extends HTMLElement {
     const cams = this._cfgCams();
     const cfg = this._config || {};
 
-    const opts = sel => entityList.map(e => `<option value="${e}" ${e === sel ? 'selected' : ''}>${e}</option>`).join('');
-
+    const opts = (sel) => {
+      // Keep a configured camera in its row even when a refetch removes it from
+      // the discovery list. Otherwise the select loses its value and the next
+      // unrelated editor change silently removes it from the saved config.
+      const options = entityList.includes(sel) || !sel ? entityList : [...entityList, sel].sort();
+      return options.map(e => {
+        const state = this._hass?.states?.[e];
+        const unavailable = !state || state.state === 'unavailable' || state.state === 'unknown';
+        const selected = e === sel;
+        return `<option value="${e}" ${selected?'selected':''} ${selected && unavailable?'disabled':''} ${unavailable?'class="cam-unavailable"':''}>${e}${unavailable?' (unavailable)':''}</option>`;
+      }).join('');
+    };
+    
     const layoutId = cfg.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
     // Offering a layout with fewer tiles than there are cameras is just wrong,
@@ -4588,6 +4686,25 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .cam-opts .mini.grow{flex:1 1 140px;min-width:80px;}
       .cam-opts .cn{width:100%;}
       .cam-opts .cs{width:auto;}
+      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
+      .section{border-top:1px solid var(--ed-line);padding-top:12px;}
+      .hint{color:var(--ed-dim);font-size:11px;}
+      .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
+      .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
+        background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
+      .ce,.cn{flex:1;padding:7px;min-width:0;}
+      .ce option.cam-unavailable{color:var(--secondary-text-color,#808080);}
+      .tf{width:100%;padding:7px;}
+      .cs{padding:7px 4px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
+      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
+      .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
+        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
+      .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
+        border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
+      .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
+      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--primary-text-color,#111);}
+      .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
         color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
       .color-row{display:flex;align-items:center;gap:4px;min-height:30px;flex-shrink:0;}

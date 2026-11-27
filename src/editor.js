@@ -41,6 +41,10 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       this._btnTimer = null;
       this._commitButtons(this._btnSel(this._cfgCams()));
     }
+    const cameraStates = Object.keys(h.states).filter(e => e.startsWith('camera.')).sort()
+      .map(e => `${e}:${h.states[e].state === 'unavailable' || h.states[e].state === 'unknown' ? 'offline' : 'online'}`);
+    const key = `${this._frigateEntities().join(',')}|${cameraStates.join(',')}`;
+    if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); }
   }
 
   _frigateEntities() {
@@ -61,7 +65,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       : (this._config?.camera_entity ? [{ entity: this._config.camera_entity, name: '' }] : [{ entity: '', name: '' }]);
   }
 
-  // ---- Small view helpers -------------------------------------------------
+
 
   // A titled card with an optional one-line explanation. Every group of
   // settings lives in one, so the eye can find where a setting belongs.
@@ -105,8 +109,19 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     const cams = this._cfgCams();
     const cfg = this._config || {};
 
-    const opts = sel => entityList.map(e => `<option value="${e}" ${e === sel ? 'selected' : ''}>${e}</option>`).join('');
-
+    const opts = (sel) => {
+      // Keep a configured camera in its row even when a refetch removes it from
+      // the discovery list. Otherwise the select loses its value and the next
+      // unrelated editor change silently removes it from the saved config.
+      const options = entityList.includes(sel) || !sel ? entityList : [...entityList, sel].sort();
+      return options.map(e => {
+        const state = this._hass?.states?.[e];
+        const unavailable = !state || state.state === 'unavailable' || state.state === 'unknown';
+        const selected = e === sel;
+        return `<option value="${e}" ${selected?'selected':''} ${selected && unavailable?'disabled':''} ${unavailable?'class="cam-unavailable"':''}>${e}${unavailable?' (unavailable)':''}</option>`;
+      }).join('');
+    };
+    
     const layoutId = cfg.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
     // Offering a layout with fewer tiles than there are cameras is just wrong,
@@ -377,6 +392,25 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .cam-opts .mini.grow{flex:1 1 140px;min-width:80px;}
       .cam-opts .cn{width:100%;}
       .cam-opts .cs{width:auto;}
+      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
+      .section{border-top:1px solid var(--ed-line);padding-top:12px;}
+      .hint{color:var(--ed-dim);font-size:11px;}
+      .cr{display:flex;gap:5px;align-items:center;margin-bottom:6px;}
+      .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
+        background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
+      .ce,.cn{flex:1;padding:7px;min-width:0;}
+      .ce option.cam-unavailable{color:var(--secondary-text-color,#808080);}
+      .tf{width:100%;padding:7px;}
+      .cs{padding:7px 4px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
+      .crst{width:22px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;flex-shrink:0;font-size:14px;}
+      .xb{padding:5px 8px;border:1px solid var(--error-color,#f87171);background:transparent;
+        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
+      .add-btn{padding:6px 12px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
+        border-radius:7px;cursor:pointer;font-size:12px;margin-top:2px;}
+      .radio-row,.chk-row{display:flex;gap:14px;flex-wrap:wrap;}
+      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--primary-text-color,#111);}
+      .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
         color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
       .color-row{display:flex;align-items:center;gap:4px;min-height:30px;flex-shrink:0;}

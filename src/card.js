@@ -133,13 +133,16 @@ export class FrigateModernHassCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    this._syncCameraAvailability();
     if (!this._started) { this._started = true; this._start(); return; }
     // keep active stream in sync
-    if (this._engine) {
-      try { this._engine.hass = hass; } catch (_) { }
+    const ent = this._activeCam?.entity;
+    // Keep the last frame/player undisturbed during the short offline debounce.
+    // Some camera integrations briefly report unavailable while reconnecting.
+    if (this._engine && ent && !this._cameraUnavailable(ent)) {
+      try { this._engine.hass = hass; } catch(_) {}
       // Only update stateObj when entity state actually changes (e.g. offline→online).
       // Resetting stateObj on every hass update restarts the stream and resets muted state.
-      const ent = this._activeCam?.entity;
       const newState = hass.states[ent]?.state;
       if (ent && newState !== this._lastEngineState) {
         this._lastEngineState = newState;
@@ -187,6 +190,10 @@ export class FrigateModernHassCard extends HTMLElement {
     this._suspended = this._started;
     this._resumeRotate = !!this._rotateTimer;
     this._resumeAtNow = this._started && this._isNowWindow();
+    for (const entry of this._cameraAvailability?.values() || []) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
     this._stopRotate();
     if (this._refresh) clearInterval(this._refresh);
     if (this._unsub) { try { this._unsub.then(u => u && u()); } catch (_) { } this._unsub = null; }
@@ -321,6 +328,73 @@ export class FrigateModernHassCard extends HTMLElement {
     return { ...raw, attributes: attrs };
   }
 
+  _cameraUnavailable(entity) {
+    const state = this._hass?.states?.[entity]?.state;
+    return !state || state === 'unavailable' || state === 'unknown';
+  }
+  _syncCameraAvailability() {
+    this._cameraAvailability ||= new Map();
+    const entities = this._config.cameras.map(c => c.entity).filter(Boolean);
+    for (const entity of entities) {
+      const offline = this._cameraUnavailable(entity);
+      let entry = this._cameraAvailability.get(entity);
+      if (!entry) { entry = { offline: false, timer: null }; this._cameraAvailability.set(entity, entry); }
+      if (offline) {
+        if (entry.timer == null && !entry.offline) {
+          entry.timer = setTimeout(() => {
+            entry.timer = null;
+            if (!this._cameraUnavailable(entity)) return;
+            entry.offline = true;
+            this._showCameraUnavailable(entity);
+          }, 10000);
+        }
+      } else {
+        clearTimeout(entry.timer);
+        entry.timer = null;
+        if (entry.offline) {
+          entry.offline = false;
+          const cache = this._camCache[entity];
+          if (cache) cache.noGo2rtc = false;
+          if (this._viewMode === 'grid') {
+            const idx = this._config.cameras.findIndex(c => c.entity === entity);
+            if (idx >= 0) this._restoreGridSlot(idx);
+          } else if (this._activeCam?.entity === entity) {
+            this._mountEngine();
+          }
+        }
+      }
+    }
+    for (const [entity, entry] of this._cameraAvailability) {
+      if (entities.includes(entity)) continue;
+      clearTimeout(entry.timer);
+      this._cameraAvailability.delete(entity);
+    }
+  }
+  _showCameraUnavailable(entity) {
+    const message = `<div class="cam-offline" role="status" aria-label="Camera unavailable">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M7 14h23a4 4 0 0 1 4 4v2l8-5v18l-8-5v2a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"/><path d="m8 8 32 32"/></svg>
+      <span>Cam Unavailable</span>
+    </div>`;
+    if (this._viewMode === 'grid') {
+      const idx = this._config.cameras.findIndex(c => c.entity === entity);
+      const slot = this.shadowRoot.querySelectorAll('#cam-grid .grid-slot:not(.placeholder)')[idx];
+      if (!slot || idx < 0) return;
+      this._stopSlotPlayer(slot);
+      slot.innerHTML = `${message}${this._gridLabel(idx)}`;
+      slot.dataset.camUnavailable = 'true';
+      return;
+    }
+    if (this._activeCam?.entity !== entity) return;
+    this._engineSeq = (this._engineSeq || 0) + 1;
+    this._teardownGo2rtc();
+    this._engine = null;
+    const slot = this.shadowRoot.querySelector('#engine');
+    if (slot) {
+      slot.innerHTML = message;
+      slot.dataset.camUnavailable = 'true';
+    }
+  }
+
   // Switching cameras used to blank the picture to a spinner, which reads as
   // something breaking rather than something changing. Keep the last frame on
   // screen instead and fade the new stream in over it. A canvas copy costs
@@ -380,6 +454,11 @@ export class FrigateModernHassCard extends HTMLElement {
   async _mountEngine() {
     const slot = this.shadowRoot.querySelector('#engine'); if (!slot) return;
     const entity = this._activeCam?.entity; if (!entity) return;
+    if (this._cameraAvailability?.get(entity)?.offline) {
+      this._showCameraUnavailable(entity);
+      return;
+    }
+    delete slot.dataset.camUnavailable;
     const frame = this._captureFrame(); // before anything is torn down
     const spinner = '<div class="ph"><div class="ph-spin"></div></div>';
     slot.innerHTML = frame ? '' : spinner;
@@ -862,13 +941,13 @@ export class FrigateModernHassCard extends HTMLElement {
     const cache = this._camCache[entity];
     const clientId = cache?.clientId, cam = cache?.cam;
     const giveUp = () => {
-      if (this._gridToken !== token || !slot.isConnected) return;
+      if (this._gridToken !== token || !slot.isConnected || this._cameraAvailability?.get(entity)?.offline) return;
       this._mountGridHaStream(slot, entity);
     };
     if (!clientId || !cam) { giveUp(); return; }
 
     const src = await this._signed(this._go2rtcPaths(clientId, cam)[0]);
-    if (this._gridToken !== token || !slot.isConnected) return;
+    if (this._gridToken !== token || !slot.isConnected || this._cameraAvailability?.get(entity)?.offline) return;
 
     const player = document.createElement('frigate-go2rtc-player');
     player.style.cssText = 'width:100%;height:100%;display:block;pointer-events:none';
@@ -2115,6 +2194,7 @@ export class FrigateModernHassCard extends HTMLElement {
     const cam = this._config.cameras[idx];
     if (!slot || !cam) { this._mountGrid(); return; }
     this._stopSlotPlayer(slot);
+    delete slot.dataset.camUnavailable;
     slot.innerHTML = this._gridLabel(idx);
     if (this._config.live_provider === 'go2rtc') {
       slot.insertAdjacentHTML('afterbegin', '<div class="ph"><div class="ph-spin"></div></div>');
