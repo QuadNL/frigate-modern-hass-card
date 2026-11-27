@@ -1,12 +1,49 @@
-// editor.js — FrigateModernHassCardEditor config panel
+// editor.js — FrigateModernHassCardEditor config panel (sectioned redesign)
 import { DEFAULT_ROTATE_S, GRID_LAYOUTS, findLayout, camSolid, isHex } from './constants.js';
 
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+// Editor tabs, in the order someone sets a card up: who it is, which cameras,
+// how they are arranged, how they play, how it looks, then per-camera buttons.
+const TABS = [
+  { id: 'general',    label: 'General' },
+  { id: 'cameras',    label: 'Cameras' },
+  { id: 'layout',     label: 'Layout' },
+  { id: 'live',       label: 'Live' },
+  { id: 'appearance', label: 'Style' },
+  { id: 'buttons',    label: 'Buttons' },
+];
+
 export class FrigateModernHassCardEditor extends HTMLElement {
-  setConfig(c) { this._config=c; this._render(); }
+  setConfig(c) {
+    // Our own edits come back through here via Home Assistant. Re-rendering for
+    // them destroys focus and open state, so only rebuild for outside changes
+    // (YAML edit, first load).
+    const same = this._config && JSON.stringify(c) === JSON.stringify(this._config);
+    this._config = c;
+    if (!same) this._draft = {};
+    if (!same || !this.firstChild) this._render();
+  }
+
   set hass(h) {
     this._hass = h;
     // Only re-render when the camera entity list actually changes — prevents dropdown closing
     const key = this._frigateEntities().join(',');
+    if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); return; }
+    // Keep the action pickers current without rebuilding the DOM.
+    this.querySelectorAll('ha-selector[data-button-action]').forEach(s => { s.hass = h; });
+  }
+
+  disconnectedCallback() {
+    // Closing the editor within the debounce window must not lose the label.
+    if (this._btnTimer) {
+      clearTimeout(this._btnTimer);
+      this._btnTimer = null;
+      this._commitButtons(this._btnSel(this._cfgCams()));
+    }
+    const cameraStates = Object.keys(h.states).filter(e => e.startsWith('camera.')).sort()
+      .map(e => `${e}:${h.states[e].state === 'unavailable' || h.states[e].state === 'unknown' ? 'offline' : 'online'}`);
+    const key = `${this._frigateEntities().join(',')}|${cameraStates.join(',')}`;
     if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); }
   }
 
@@ -21,67 +58,340 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .sort();
   }
 
-  _render() {
-    const frigEntities = this._frigateEntities();
-    const allCamEntities = this._hass ? Object.keys(this._hass.states).filter(e=>e.startsWith('camera.')).sort() : [];
-    const entityList = frigEntities.length ? frigEntities : allCamEntities;
-
-    const cams = this._config?.cameras
+  // The camera list as the config currently describes it.
+  _cfgCams() {
+    return this._config?.cameras
       ? this._config.cameras
       : (this._config?.camera_entity ? [{ entity: this._config.camera_entity, name: '' }] : [{ entity: '', name: '' }]);
+  }
 
-    const opts = (sel) => entityList.map(e => `<option value="${e}" ${e===sel?'selected':''}>${e}</option>`).join('');
 
-    const layoutId = this._config?.grid_layout || 'auto';
+
+  // A titled card with an optional one-line explanation. Every group of
+  // settings lives in one, so the eye can find where a setting belongs.
+  _sec(title, desc, body) {
+    return `<section class="sec">
+      <header class="sec-head"><h3>${title}</h3>${desc ? `<p>${desc}</p>` : ''}</header>
+      <div class="sec-body">${body}</div>
+    </section>`;
+  }
+
+  _panel(id, html) {
+    const cur = TABS.some(t => t.id === this._tab) ? this._tab : 'general';
+    return `<div class="panel" data-panel="${id}" ${cur === id ? '' : 'hidden'}>${html}</div>`;
+  }
+
+  _radio(name, value, label, checked) {
+    return `<label class="radio-lbl"><input type="radio" name="${name}" value="${value}" ${checked ? 'checked' : ''}> ${label}</label>`;
+  }
+
+  _tabBar(camCount) {
+    const cur = TABS.some(t => t.id === this._tab) ? this._tab : 'general';
+    return `<div class="tabs" role="tablist">${TABS.map(t => `
+      <button type="button" role="tab" class="tab${cur === t.id ? ' sel' : ''}" data-tab="${t.id}">
+        ${t.label}${t.id === 'cameras' ? `<span class="badge">${camCount}</span>` : ''}
+      </button>`).join('')}</div>`;
+  }
+
+  _setTab(id) {
+    this._tab = id;
+    this.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('sel', x.dataset.tab === id));
+    this.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== id; });
+    this.querySelector('.ed-wrap')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  // ---- Render -------------------------------------------------------------
+
+  _render() {
+    const frigEntities = this._frigateEntities();
+    const allCamEntities = this._hass ? Object.keys(this._hass.states).filter(e => e.startsWith('camera.')).sort() : [];
+    const entityList = frigEntities.length ? frigEntities : allCamEntities;
+    const cams = this._cfgCams();
+    const cfg = this._config || {};
+
+    const opts = (sel) => {
+      // Keep a configured camera in its row even when a refetch removes it from
+      // the discovery list. Otherwise the select loses its value and the next
+      // unrelated editor change silently removes it from the saved config.
+      const options = entityList.includes(sel) || !sel ? entityList : [...entityList, sel].sort();
+      return options.map(e => {
+        const state = this._hass?.states?.[e];
+        const unavailable = !state || state.state === 'unavailable' || state.state === 'unknown';
+        const selected = e === sel;
+        return `<option value="${e}" ${selected?'selected':''} ${selected && unavailable?'disabled':''} ${unavailable?'class="cam-unavailable"':''}>${e}${unavailable?' (unavailable)':''}</option>`;
+      }).join('');
+    };
+    
+    const layoutId = cfg.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
     // Offering a layout with fewer tiles than there are cameras is just wrong,
     // so hide those. If nothing is big enough, show everything rather than an
     // empty picker.
     const fitting = GRID_LAYOUTS.filter(l => l.id === 'auto' || l.tiles >= cams.length);
     const layoutChoices = fitting.length > 1 ? fitting : GRID_LAYOUTS;
-    // The tile number leads the row, so you read "tile 1 shows this camera",
-    // which is the direction people think in. Picking a camera that already
-    // sits in another tile swaps the two, so choosing is also positioning and
-    // no separate reorder control is needed.
-    const camRows = cams.map((c,i) => `
-      <div class="cr" data-row="${i}">
-        <span class="cnum" title="Tile ${i+1} in the grid">${i+1}</span>
-        <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}">
-          <option value="">Select camera</option>
-          ${opts(c.entity||'')}
-        </select>
-        <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Display name (optional)" value="${c.name||''}">
-        ${usingLayout ? '' : `
-        <select class="cs" data-cam-span="${i}" title="Tile size in the grid">
-          ${[1,2,3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1)===v?'selected':''}>${v}x${v}</option>`).join('')}
-        </select>`}
-        ${cams.length > 1 ? `
-        <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
-        ${isHex(c.color) ? `<button class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
-        <button class="xb" data-remove-cam="${i}" title="Remove">✕</button>` : ''}
+
+    // ---- Cameras tab: one card per camera. The tile number leads, so you read
+    // "tile 1 shows this camera". Picking a camera that already sits in another
+    // tile swaps the two, so choosing is also positioning.
+    const camCards = cams.map((c, i) => `
+      <div class="cam" data-row="${i}">
+        <div class="cam-top">
+          <span class="cnum" title="Tile ${i + 1} in the grid">${i + 1}</span>
+          <select name="cam-entity-${i}" class="ce" data-cam-entity="${i}" aria-label="Camera for tile ${i + 1}">
+            <option value="">Select camera</option>
+            ${opts(c.entity || '')}
+          </select>
+        </div>
+        <div class="cam-opts">
+          <label class="mini grow"><span class="hint">Display name</span>
+            <input type="text" name="cam-name-${i}" class="cn" data-cam-name="${i}" placeholder="Optional" value="${esc(c.name)}">
+          </label>
+          ${usingLayout ? '' : `
+          <label class="mini"><span class="hint">Tile size</span>
+            <select class="cs" data-cam-span="${i}">
+              ${[1, 2, 3].map(v => `<option value="${v}" ${Number(c.span?.cols ?? c.span ?? 1) === v ? 'selected' : ''}>${v}x${v}</option>`).join('')}
+            </select>
+          </label>`}
+          ${cams.length > 1 ? `
+          <div class="mini"><span class="hint">Timeline colour</span>
+            <div class="color-row">
+              <input type="color" class="ccol" data-cam-color="${i}" value="${isHex(c.color) ? c.color : camSolid(i, cams.length)}" title="Colour of this camera on the grid view timeline">
+              ${isHex(c.color) ? `<button type="button" class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
+            </div>
+          </div>` : ''}
+            ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
+
+        </div>
       </div>`).join('');
 
-    const hiddenTabs = new Set(this._config?.hidden_tabs || []);
-    const tabCheck = (id, label) => `<label class="chk-lbl">
-      <input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id)?'checked':''}> ${label}
-    </label>`;
+    const camerasPanel = this._sec(
+      'Cameras',
+      `${frigEntities.length ? 'Frigate cameras detected. ' : ''}Each card is one tile on the grid, in order.`,
+      `<div id="cam-list" class="cam-list">${camCards}</div>
+       <button type="button" class="add-btn" id="add-cam">+ Add camera</button>
+       ${cams.length > 1 ? '<small class="hint block">Pick a camera that is already in another tile to swap the two.</small>' : ''}
+       ${cams.length > 4 ? '<small class="hint block warn">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
+       ${usingLayout ? '<small class="hint block">Tile sizes come from the layout you chose. Set the layout to Automatic on the Layout tab to size tiles by hand.</small>' : ''}`
+    ) + this._sec(
+      'Next step',
+      '',
+      `<small class="hint block">Want quick actions under a camera? Add them on the <a href="#" class="lnk" data-goto="buttons">Buttons tab</a>. Arrange the grid on the <a href="#" class="lnk" data-goto="layout">Layout tab</a>.</small>`
+    );
 
-    const defaultView = this._config?.default_view || 'single';
-    const rotateOnLoad = this._config?.rotate_on_load === true;
-    const multiCam = cams.length > 1 || (cams.length === 1 && !cams[0].entity);
+    // ---- General tab
+    const generalPanel = this._sec(
+      'Card identity',
+      'How this card is named and found.',
+      `<label class="fld"><span class="field-label">Title</span>
+         <input name="title" class="tf" id="title" type="text" value="${esc(cfg.title)}" placeholder="My Camera">
+       </label>
+       <label class="fld"><span class="field-label">Subtitle</span>
+         <input name="subtitle" class="tf" id="subtitle" type="text" value="${esc(cfg.subtitle)}" placeholder="Frigate">
+       </label>
+       <label class="fld"><span class="field-label">URL ID</span>
+         <input name="url_id" class="tf" id="url_id" type="text" value="${esc(cfg.url_id)}" placeholder="Uses title if blank">
+         <small class="hint">Targets this card in dashboard URLs. If blank, the title becomes a lowercase hyphenated ID.</small>
+       </label>`
+    ) + this._sec(
+      'Timeline',
+      'What the recordings timeline shows.',
+      `<label class="fld"><span class="field-label">Window hours</span>
+         <input name="window_hours" class="tf narrow" id="window_hours" type="number" value="${cfg.window_hours || 6}" min="1" max="720">
+         <small class="hint">How far back the timeline reaches. Default is 6.</small>
+       </label>
+       <div class="fld"><span class="field-label">Time format</span>
+         <div class="radio-row">
+           ${[['auto', 'Follow Home Assistant'], ['12h', '12-hour'], ['24h', '24-hour']].map(([v, l]) => this._radio('time_format', v, l, (cfg.time_format || 'auto') === v)).join('')}
+         </div>
+       </div>`
+    ) + this._sec(
+      'Tabs on the card',
+      'Tick the ones you want to hide from the card itself.',
+      `<div class="chk-grid">
+         ${[['buttons', 'Buttons'], ['recordings', 'Recordings'], ['clips', 'Clips'], ['snapshot', 'Snapshots'], ['reviews', 'Reviews'], ['kept', 'Kept']].map(([id, label]) => {
+           const hiddenTabs = new Set(cfg.hidden_tabs || []);
+           return `<label class="chk-lbl"><input type="checkbox" name="hide-${id}" data-hide-tab="${id}" ${hiddenTabs.has(id) ? 'checked' : ''}> ${label}</label>`;
+         }).join('')}
+       </div>`
+    );
+
+    // ---- Layout tab
+    const defaultView = cfg.default_view || 'single';
+    const layoutPanel = this._sec(
+      'Starting view',
+      'What the card opens with.',
+      `<div class="radio-row">
+         ${this._radio('default_view', 'single', 'Single camera', defaultView === 'single')}
+         ${this._radio('default_view', 'grid', 'Grid (all cameras)', defaultView === 'grid')}
+       </div>`
+    ) + this._sec(
+      'PTZ options',
+      'Choose where the PTZ pad appears and whether it opens when a supported camera is ready. On small pictures, the pad stays below the video so it does not cover the view.',
+      `<label class="fld"><span class="field-label">Controls position</span>
+         <select name="ptz_position" id="ptz_position" class="tf ptz-select">
+           ${[['right', 'Right center'], ['top-left', 'Top left'], ['top-right', 'Top right'], ['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_position || 'right') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="fld"><span class="field-label">Open by default</span>
+         <select name="ptz_default_mode" id="ptz_default_mode" class="tf ptz-select">
+           ${[['closed-all', 'Closed by default on all devices'], ['open-both', 'Open by default on both'], ['desktop-only', 'Closed by default on mobile']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_default_mode || 'closed-all') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="chk-lbl"><input type="checkbox" name="ptz_mobile_overlay" id="ptz_mobile_overlay" ${cfg.ptz_mobile_overlay === true ? 'checked' : ''}> Float PTZ controls over the video on mobile</label>`
+    ) + this._sec(
+      'Grid layout',
+      'The numbers match the tile numbers on the Cameras tab. A layout sets the columns and tile sizes together.',
+      `<div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
+       <label class="chk-lbl stack-opt"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${cfg.stack_on_mobile !== false ? 'checked' : ''}> On a phone, stack the cameras one per row</label>
+       <small class="hint block">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone, for two cameras side by side or a small overview.</small>`
+    ) + (usingLayout ? '' : this._sec(
+      'Grid columns',
+      'Only used with the Automatic layout.',
+      `<div class="radio-row">
+         ${this._radio('grid_columns', 'auto', 'Automatic', (cfg.grid_columns || 'auto') === 'auto')}
+         ${[1, 2, 3, 4].map(n => this._radio('grid_columns', String(n), n === 1 ? '1 (stacked)' : String(n), String(cfg.grid_columns) === String(n))).join('')}
+       </div>
+       <small class="hint block">Automatic picks a column count from the number of cameras and the space available. On a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see above.</small>`
+    )) + this._sec(
+      'Size and panels',
+      '',
+      `<label class="fld"><span class="field-label">Maximum camera height (% of screen)</span>
+         <input name="stream_height" class="tf narrow" id="stream_height" type="number"
+           value="${cfg.stream_height || ''}" min="20" max="100" placeholder="e.g. 70">
+         <small class="hint">Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
+       </label>
+       <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${cfg.events_collapsed === true ? 'checked' : ''}> Start with the events panel hidden</label>
+       <small class="hint block">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>`
+    );
+
+    // ---- Live tab
+    const livePanel = this._sec(
+      'Live view provider',
+      'How the live picture reaches the card.',
+      `<div class="radio-row">
+         ${this._radio('live_provider', 'hls', 'Home Assistant stream', (cfg.live_provider || 'hls') === 'hls')}
+         ${this._radio('live_provider', 'go2rtc', 'go2rtc, low latency (experimental)', cfg.live_provider === 'go2rtc')}
+       </div>
+       <small class="hint block">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
+       <div class="fld subfld"><span class="field-label">go2rtc transport</span>
+         <div class="radio-row">
+           ${this._radio('go2rtc_mode', 'mse', 'MSE (recommended)', (cfg.go2rtc_mode || 'mse') === 'mse')}
+           ${this._radio('go2rtc_mode', 'webrtc', 'WebRTC only', cfg.go2rtc_mode === 'webrtc')}
+           ${this._radio('go2rtc_mode', 'auto', 'Automatic', cfg.go2rtc_mode === 'auto')}
+         </div>
+         <small class="hint">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network. Only applies when go2rtc is selected.</small>
+       </div>`
+    ) + this._sec(
+      'Camera rotation',
+      'Cycle through the cameras automatically.',
+      `<label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${cfg.rotate_on_load === true ? 'checked' : ''}> Auto-rotate on load</label>
+       <label class="fld"><span class="field-label">Rotate interval (seconds)</span>
+         <input name="rotate_seconds" class="tf narrow" id="rotate_seconds" type="number" value="${cfg.rotate_seconds ?? 0}" min="0">
+         <small class="hint">0 uses the default of ${DEFAULT_ROTATE_S}s.</small>
+       </label>`
+    );
+
+    // ---- Style tab
+    const appearancePanel = this._sec(
+      'Theme',
+      '',
+      `<div class="radio-row">
+         ${this._radio('theme', 'dark', 'Dark', (cfg.theme || 'dark') === 'dark')}
+         ${this._radio('theme', 'light', 'Light', cfg.theme === 'light')}
+         ${this._radio('theme', 'auto', 'Auto (browser)', cfg.theme === 'auto')}
+       </div>`
+    ) + this._sec(
+      'Colours',
+      'Tick a box to override the theme default. Untick to go back.',
+      `<div class="two-col">
+         <div>
+           <label class="chk-lbl"><input type="checkbox" id="use_accent" ${cfg.accent_color ? 'checked' : ''}> Custom accent</label>
+           <div class="color-row">
+             <input type="color" id="accent_color" class="big-col" value="${cfg.accent_color || '#3b82f6'}">
+             <span class="hint" id="accent_lbl">${cfg.accent_color || '#3b82f6'}</span>
+           </div>
+         </div>
+         <div>
+           <label class="chk-lbl"><input type="checkbox" id="use_bg" ${cfg.bg_color ? 'checked' : ''}> Custom background</label>
+           <div class="color-row">
+             <input type="color" id="bg_color" class="big-col" value="${cfg.bg_color || '#1c2233'}">
+             <span class="hint" id="bg_lbl">${cfg.bg_color || '#1c2233'}</span>
+           </div>
+         </div>
+       </div>`
+    );
 
     this.innerHTML = `<style>
       /* The editor lives in Home Assistant's own dialog, not in a shadow root of
-         ours, so it has to follow the user's theme. Fixed colours here meant an
-         unreadable panel on every dark theme. Each variable keeps a light
+         ours, so it has to follow the user's theme. Each variable keeps a light
          fallback for the rare theme that does not define it. */
-      .ed-wrap{display:flex;flex-direction:column;gap:14px;padding:6px 2px;
+      .ed-wrap{display:flex;flex-direction:column;gap:12px;padding:4px 0;
         font-family:var(--paper-font-body1_-_font-family,sans-serif);
         color:var(--primary-text-color,#111);
         --ed-dim:var(--secondary-text-color,#6b7280);
         --ed-line:var(--divider-color,#e5e7eb);
         --ed-field:var(--card-background-color,#fff);
         --ed-acc:var(--primary-color,#3b82f6);}
+      .ed-wrap *{box-sizing:border-box;}
+
+      /* Tabs: one row that scrolls sideways rather than wrapping. */
+      .tabs{display:flex;gap:2px;border-bottom:1px solid var(--ed-line);overflow-x:auto;scrollbar-width:none;
+        position:sticky;top:0;z-index:2;background:var(--mdc-theme-surface,var(--card-background-color,#fff));}
+      .tabs::-webkit-scrollbar{display:none;}
+      .tab{padding:10px 14px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;flex-shrink:0;
+        background:transparent;color:var(--ed-dim);cursor:pointer;font-size:13px;white-space:nowrap;
+        display:flex;align-items:center;gap:6px;}
+      .tab:hover{color:var(--primary-text-color,#111);}
+      .tab.sel{color:var(--ed-acc);border-bottom-color:var(--ed-acc);font-weight:600;}
+      .badge{font-size:10px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;display:inline-flex;
+        align-items:center;justify-content:center;background:var(--ed-acc);color:var(--text-primary-color,#fff);font-weight:700;}
+
+      /* Both panels stay in the DOM and are only hidden, because the config is
+         read back from the form fields on every change. */
+      .panel{display:flex;flex-direction:column;gap:12px;}
+      .panel[hidden]{display:none;}
+
+      /* Section cards */
+      .sec{border:1px solid var(--ed-line);border-radius:10px;overflow:hidden;}
+      .sec-head{padding:10px 14px 8px;border-bottom:1px solid var(--ed-line);
+        background:color-mix(in srgb,var(--ed-dim) 7%,transparent);}
+      .sec-head h3{margin:0;font-size:13px;font-weight:600;}
+      .sec-head p{margin:2px 0 0;font-size:11px;color:var(--ed-dim);line-height:1.35;}
+      .sec-body{padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
+
+      .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;}
+      .fld{display:block;}
+      .subfld{border-top:1px dashed var(--ed-line);padding-top:10px;}
+      .hint{color:var(--ed-dim);font-size:11px;line-height:1.4;}
+      .hint.block{display:block;}
+      .hint.warn{color:var(--warning-color,#b45309);}
+      .lnk{color:var(--ed-acc);text-decoration:none;font-weight:600;}
+      .lnk:hover{text-decoration:underline;}
+      fieldset{border:none;margin:0;padding:0;}
+
+      .tf,.ce,.cn,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:13px;padding:8px;
+        background:var(--ed-field);color:var(--primary-text-color,#111);width:100%;}
+      .tf.narrow{max-width:140px;}
+      .ptz-select{max-width:300px;}
+      .tf:focus,.ce:focus,.cn:focus,.cs:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
+      .fld .hint{display:block;margin-top:4px;}
+
+      .radio-row,.chk-row{display:flex;gap:6px 16px;flex-wrap:wrap;}
+      .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;}
+      .chk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}
+      .two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+      .stack-opt{margin-top:2px;}
+
+      /* Camera cards */
+      .cam-list{display:flex;flex-direction:column;gap:2px;overflow-x:auto;}
+      .cam{display:flex;gap:8px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid var(--ed-line);}
+      .cam-top,.cam-opts{display:contents;}
+      .cam .ce{flex:1 1 220px;max-width:300px;min-width:0;width:100%;}
+      .cam-opts .mini{display:block;flex:0 1 auto;min-width:0;}
+      .cam-opts .mini .hint{display:none;}
+      .cam-opts .mini.grow{flex:1 1 140px;min-width:80px;}
+      .cam-opts .cn{width:100%;}
+      .cam-opts .cs{width:auto;}
       .field-label{font-size:12px;font-weight:600;margin-bottom:4px;display:block;color:var(--primary-text-color,#111);}
       .section{border-top:1px solid var(--ed-line);padding-top:12px;}
       .hint{color:var(--ed-dim);font-size:11px;}
@@ -89,6 +399,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
         background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
       .ce,.cn{flex:1;padding:7px;min-width:0;}
+      .ce option.cam-unavailable{color:var(--secondary-text-color,#808080);}
       .tf{width:100%;padding:7px;}
       .cs{padding:7px 4px;flex-shrink:0;}
       .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
@@ -101,8 +412,19 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .radio-lbl,.chk-lbl{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:var(--primary-text-color,#111);}
       .chk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-        background:transparent;color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
-      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin:4px 0 8px;}
+        color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
+      .color-row{display:flex;align-items:center;gap:4px;min-height:30px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
+      .big-col{width:44px;height:32px;border:none;padding:2px;border-radius:6px;cursor:pointer;background:transparent;}
+      .crst{width:22px;height:28px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
+      .xb{padding:5px 9px;border:1px solid var(--error-color,#f87171);background:transparent;
+        color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
+      .add-btn{align-self:flex-start;padding:7px 14px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
+        border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;}
+      .add-btn:hover{background:color-mix(in srgb,var(--ed-acc) 10%,transparent);}
+
+      /* Layout picker */
+      .lay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;}
       .lay{padding:6px 5px 5px;border:1px solid var(--ed-line);border-radius:8px;background:transparent;
         color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;}
       .lay:hover{border-color:var(--ed-acc);}
@@ -110,194 +432,77 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .lay-prev{width:100%;aspect-ratio:4/3;display:grid;gap:2px;grid-auto-flow:dense;grid-auto-rows:1fr;}
       /* Neutral grey reads on a light and a dark theme alike. */
       .lay-prev span{background:rgba(128,128,128,.35);border-radius:2px;display:flex;align-items:center;
-        justify-content:center;font-size:9px;color:var(--primary-text-color,#475569);font-weight:700;}
+        justify-content:center;font-size:9px;font-weight:700;}
       .lay.sel .lay-prev span{background:var(--ed-acc);color:var(--text-primary-color,#fff);}
       .lay-auto{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
         color:var(--ed-dim);font-size:10px;text-align:center;border:1px dashed var(--ed-line);border-radius:4px;}
-      .lay-lbl{font-size:10px;color:var(--primary-text-color,#374151);text-align:center;line-height:1.2;}
+      .lay-lbl{font-size:10px;text-align:center;line-height:1.2;}
+
+      /* Buttons tab */
+      .button-camera{width:100%;max-width:480px;padding:8px;border:1px solid var(--ed-line);
+        border-radius:6px;background:var(--ed-field);color:var(--primary-text-color,#111);font-size:13px;}
+      .button-camera:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
+      .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;}
+      .slot{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--ed-line);border-radius:8px;}
+      .slot-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;}
+      .empty{padding:14px;text-align:center;border:1px dashed var(--ed-line);border-radius:8px;}
     </style>
     <div class="ed-wrap">
-      <div>
-        <span class="field-label">Cameras ${frigEntities.length ? '<small class="hint" style="font-weight:400">· Frigate cameras detected</small>' : ''}</span>
-        <div id="cam-list">${camRows}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <button class="add-btn" id="add-cam">+ Add camera</button>
-          <button class="add-btn" id="toggle-layout">Grid layout${usingLayout ? `: ${findLayout(layoutId)?.label || ''}` : ''}</button>
-        </div>
-        ${cams.length > 1 ? '<small class="hint" style="display:block;margin-top:4px">The number is the tile the camera fills in the grid. Pick a camera that is already in another tile to swap the two.</small>' : ''}
-        ${cams.length > 4 ? '<small class="hint" style="display:block;margin-top:4px">Every camera in the grid streams at once, so more cameras means more load on the browser and on Frigate.</small>' : ''}
-        <div id="layout-picker" style="display:${this._layoutOpen ? 'block' : 'none'};margin-top:8px">
-          <div class="lay-grid">${layoutChoices.map(l => this._layoutButton(l, layoutId)).join('')}</div>
-          <small class="hint">The numbers match the tile numbers beside each camera above. A layout sets the columns and the tile sizes together.</small>
-          <div style="border-top:1px solid var(--divider-color);margin-top:10px;padding-top:8px">
-            <label class="chk-lbl"><input type="checkbox" name="stack_on_mobile" id="stack_on_mobile" ${this._config?.stack_on_mobile!==false?'checked':''}> On a phone, stack the cameras one per row</label>
-            <small class="hint" style="display:block;margin-top:4px">Any layout leaves the cameras too small to see on a phone, so this overrides it there. Turn it off to keep the grid on a phone too, for two cameras side by side or a small overview.</small>
-          </div>
-        </div>
-      </div>
-
-      <label><span class="field-label">Title (optional)</span>
-        <input name="title" class="tf" id="title" type="text" value="${this._config?.title||''}" placeholder="My Camera">
-      </label>
-      <label><span class="field-label">Subtitle</span>
-        <input name="subtitle" class="tf" id="subtitle" type="text" value="${this._config?.subtitle||''}" placeholder="Frigate">
-      </label>
-
-      <div class="section">
-        <span class="field-label">View</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="default_view" value="single" ${defaultView==='single'?'checked':''}> Single camera</label>
-          <label class="radio-lbl"><input type="radio" name="default_view" value="grid" ${defaultView==='grid'?'checked':''}> Grid (all cams)</label>
-        </div>
-        <div style="margin-top:8px">
-          <span class="hint" style="display:block;margin-bottom:3px">Time format</span>
-          <div class="radio-row">
-            ${[['auto','Follow Home Assistant'],['12h','12-hour'],['24h','24-hour']].map(([v,l]) => `
-            <label class="radio-lbl"><input type="radio" name="time_format" value="${v}" ${(this._config?.time_format||'auto')===v?'checked':''}> ${l}</label>`).join('')}
-          </div>
-        </div>
-        <div style="margin-top:8px">
-          <label class="chk-lbl"><input type="checkbox" name="rotate_on_load" id="rotate_on_load" ${rotateOnLoad?'checked':''}> Auto-rotate on load</label>
-        </div>
-        <div style="margin-top:6px">
-          <label><span class="hint">Rotate interval (seconds, 0 = use default ${DEFAULT_ROTATE_S}s)</span>
-            <input name="rotate_seconds" class="tf" id="rotate_seconds" type="number" value="${this._config?.rotate_seconds??0}" min="0" style="margin-top:3px">
-          </label>
-        </div>
-      </div>
-      <div class="section">
-        <span class="field-label">Theme</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="theme" value="dark"  ${(this._config?.theme||'dark')==='dark' ?'checked':''}> Dark</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="light" ${this._config?.theme==='light'?'checked':''}> Light</label>
-          <label class="radio-lbl"><input type="radio" name="theme" value="auto"  ${this._config?.theme==='auto' ?'checked':''}> Auto (browser)</label>
-        </div>
-      </div>
-      <div class="section">
-        <span class="field-label">Colors</span>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
-          <div>
-            <label class="chk-lbl" style="margin-bottom:4px">
-              <input type="checkbox" id="use_accent" ${this._config?.accent_color?'checked':''}> Custom accent
-            </label>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input type="color" id="accent_color" value="${this._config?.accent_color||'#3b82f6'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span class="hint" id="accent_lbl">${this._config?.accent_color||'#3b82f6'}</span>
-            </div>
-          </div>
-          <div>
-            <label class="chk-lbl" style="margin-bottom:4px">
-              <input type="checkbox" id="use_bg" ${this._config?.bg_color?'checked':''}> Custom background
-            </label>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input type="color" id="bg_color" value="${this._config?.bg_color||'#1c2233'}" style="width:40px;height:30px;border:none;padding:2px;border-radius:6px;cursor:pointer">
-              <span class="hint" id="bg_lbl">${this._config?.bg_color||'#1c2233'}</span>
-            </div>
-          </div>
-        </div>
-        <small class="hint">Check the box to activate. Uncheck to revert to theme default.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Hidden tabs</span>
-        <div class="chk-grid">
-          ${tabCheck('recordings','Recordings')}
-          ${tabCheck('clips','Clips')}
-          ${tabCheck('snapshot','Snapshots')}
-          ${tabCheck('reviews','Reviews')}
-          ${tabCheck('kept','Kept')}
-        </div>
-      </div>
-
-      <div class="section" ${usingLayout ? 'style="display:none"' : ''}>
-        <span class="field-label">Grid columns</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="auto" ${(this._config?.grid_columns||'auto')==='auto'?'checked':''}> Automatic</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="1" ${String(this._config?.grid_columns)==='1'?'checked':''}> 1 (stacked)</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="2" ${String(this._config?.grid_columns)==='2'?'checked':''}> 2</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="3" ${String(this._config?.grid_columns)==='3'?'checked':''}> 3</label>
-          <label class="radio-lbl"><input type="radio" name="grid_columns" value="4" ${String(this._config?.grid_columns)==='4'?'checked':''}> 4</label>
-        </div>
-        <small class="hint">A camera can occupy more than one tile, so one can be shown larger than the rest. Automatic picks a column count from the number of cameras and the space available: on a tablet that comes to <b>${this._colsAt(800, cams.length)}</b> per row. A phone stacks regardless, see below.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Events panel</span>
-        <label class="chk-lbl"><input type="checkbox" name="events_collapsed" id="events_collapsed" ${this._config?.events_collapsed===true?'checked':''}> Start with the events panel hidden</label>
-        <small class="hint" style="display:block;margin-top:4px">On a wide card the events list sits beside the cameras. Hiding it gives the cameras the full width; a button on the card slides it back in.</small>
-      </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Live view provider</span>
-        <div class="radio-row">
-          <label class="radio-lbl"><input type="radio" name="live_provider" value="hls" ${(this._config?.live_provider||'hls')==='hls'?'checked':''}> Home Assistant stream</label>
-          <label class="radio-lbl"><input type="radio" name="live_provider" value="go2rtc" ${this._config?.live_provider==='go2rtc'?'checked':''}> go2rtc, low latency (experimental)</label>
-        </div>
-        <small class="hint">go2rtc streams via Frigate's built-in WebRTC/MSE for much lower latency. Falls back to the Home Assistant stream automatically if it can't connect.</small>
-        <div style="margin-top:8px">
-          <span class="field-label">go2rtc transport</span>
-          <div class="radio-row">
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="mse" ${(this._config?.go2rtc_mode||'mse')==='mse'?'checked':''}> MSE (recommended)</label>
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="webrtc" ${this._config?.go2rtc_mode==='webrtc'?'checked':''}> WebRTC only</label>
-            <label class="radio-lbl"><input type="radio" name="go2rtc_mode" value="auto" ${this._config?.go2rtc_mode==='auto'?'checked':''}> Automatic</label>
-          </div>
-          <small class="hint">MSE runs entirely over the proxied connection, so it works remotely and in the companion apps. WebRTC can be marginally faster but connects directly to go2rtc, which usually only resolves on the local network.</small>
-        </div>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Maximum camera height</span>
-        <input name="stream_height" class="tf" id="stream_height" type="number"
-          value="${this._config?.stream_height||''}" min="20" max="100"
-          placeholder="e.g. 70, blank = automatic">
-        <small class="hint">As a percentage of the screen height. Leave empty to let the cameras size themselves; a grid uses at most 70% by default. Raise it for a wall display.</small>
-      </div>
-
-      <div class="section">
-        <span class="field-label">Window hours</span>
-        <input name="window_hours" class="tf" id="window_hours" type="number" value="${this._config?.window_hours||6}" min="1" max="720">
-      </div>
-
-
+      ${this._tabBar(cams.length)}
+      ${this._panel('general', generalPanel)}
+      ${this._panel('cameras', camerasPanel)}
+      ${this._panel('layout', layoutPanel)}
+      ${this._panel('live', livePanel)}
+      ${this._panel('appearance', appearancePanel)}
+      ${this._panel('buttons', this._buttonsSection(cams))}
     </div>`;
 
     this.querySelector('#add-cam')?.addEventListener('click', () => {
-      const cur = this._getCams(); cur.push({ entity:'', name:'' });
-      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
+      const cur = this._getCams(); cur.push({ entity: '', name: '' });
+      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
+      this._draft = {};
+      this._render(); this._dispatch();
     });
     this.querySelectorAll('[data-remove-cam]').forEach(b => b.addEventListener('click', e => {
       const cur = this._getCams(); cur.splice(Number(e.currentTarget.dataset.removeCam), 1);
-      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity; this._render(); this._dispatch();
+      this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
+      this._draft = {};
+      this._render(); this._dispatch();
     }));
-    this.querySelector('#toggle-layout')?.addEventListener('click', () => {
-      this._layoutOpen = !this._layoutOpen; this._render();
-    });
-    // Picking a camera that is already shown in another tile moves it here and
-    // sends whatever stood here back to the tile it came from. Without this you
-    // would end up with the same camera twice and no way to place it. Runs
-    // before the generic change handler so it can take over the update.
     this.querySelectorAll('[data-reset-color]').forEach(b => b.addEventListener('click', () => {
       const i = Number(b.dataset.resetColor);
       const inp = this.querySelector(`[data-cam-color="${i}"]`);
       if (inp) inp.value = camSolid(i, this.querySelectorAll('[data-row]').length);
       this._u();
+      this._render();
     }));
+    // Picking a camera that is already shown in another tile moves it here and
+    // sends whatever stood here back to the tile it came from. Without this you
+    // would end up with the same camera twice and no way to place it. Runs
+    // before the generic change handler so it can take over the update.
     this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', ev => {
       const i = Number(ev.currentTarget.dataset.camEntity);
       const picked = ev.currentTarget.value;
       if (!picked) return;
-      const before = cams;
+      // Read from the config, not the render-time snapshot: edits no longer
+      // trigger a re-render, so the snapshot can be stale.
+      const before = this._cfgCams();
       const j = before.findIndex((c, k) => k !== i && c.entity === picked);
       if (j < 0) return; // not in use elsewhere, nothing to swap
       ev.stopImmediatePropagation();
       const cur = this._getCams(); // keeps the sizes, which belong to the tile
       const nameOf = k => before[k]?.name || '';
-      // Name and colour belong to the camera, so they move with it; the size
-      // belongs to the tile and stays.
-      const withColor = (o, k) => { const x = { ...o }; delete x.color; if (isHex(before[k]?.color)) x.color = before[k].color; return x; };
-      cur[i] = withColor({ ...cur[i], entity: picked, name: nameOf(j) }, j);
-      cur[j] = withColor({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
+      // Name, colour and buttons belong to the camera, so they move with it;
+      // the size belongs to the tile and stays.
+      const carry = (o, k) => {
+        const x = { ...o }; delete x.color; delete x.buttons;
+        if (isHex(before[k]?.color)) x.color = before[k].color;
+        if (before[k]?.buttons?.length) x.buttons = before[k].buttons;
+        return x;
+      };
+      cur[i] = carry({ ...cur[i], entity: picked, name: nameOf(j) }, j);
+      cur[j] = carry({ ...cur[j], entity: before[i]?.entity || '', name: nameOf(i) }, i);
+      this._draft = {};
       this._config = { ...this._config, cameras: cur }; delete this._config.camera_entity;
       this._render(); this._dispatch();
     }));
@@ -305,16 +510,176 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       this._config = { ...this._config, grid_layout: b.dataset.layout };
       this._render(); this._dispatch();
     }));
-    this.querySelectorAll('select,input').forEach(el => el.addEventListener('change', () => this._u()));
+    // Button labels are handled by _bindButtons (input event), so they are
+    // excluded here.
+    this.querySelectorAll('select,input:not([data-button-label])')
+      .forEach(el => el.addEventListener('change', () => this._u()));
+    // A camera picked or cleared changes the buttons section (pill names and
+    // the "pick a camera first" state). A select's change fires after it
+    // closes, so rebuilding here is safe.
+    this.querySelectorAll('[data-cam-entity]').forEach(el => el.addEventListener('change', () => this._render()));
+    this.querySelectorAll('[data-tab]').forEach(t => t.addEventListener('click', () => this._setTab(t.dataset.tab)));
+    this.querySelectorAll('[data-goto]').forEach(a => a.addEventListener('click', e => {
+      e.preventDefault(); this._setTab(a.dataset.goto);
+    }));
+    this._bindButtons(cams);
     // prevent click outside from closing select while user is choosing
     this.querySelectorAll('select').forEach(sel => sel.addEventListener('mousedown', e => e.stopPropagation()));
     // sync color picker label as user drags
-    ['accent','bg'].forEach(key => {
+    ['accent', 'bg'].forEach(key => {
       const picker = this.querySelector(`#${key}_color`);
-      const lbl    = this.querySelector(`#${key}_lbl`);
+      const lbl = this.querySelector(`#${key}_lbl`);
       if (picker && lbl) picker.addEventListener('input', () => { lbl.textContent = picker.value; });
     });
   }
+
+  // ---- Camera buttons -----------------------------------------------------
+
+  _btnSel(cams) { return Math.max(0, Math.min(this._btnCam ?? 0, cams.length - 1)); }
+
+  // Always four slots per camera. Partly filled slots survive here even though
+  // only complete ones (label and action) are saved to the config.
+  _slots(i, cams) {
+    this._draft ??= {};
+    if (!this._draft[i]) {
+      const arr = Array.from({ length: 4 }, (_, j) => ({
+        label: cams[i]?.buttons?.[j]?.label || '',
+        action: cams[i]?.buttons?.[j]?.action,
+      }));
+      // Show one slot by default, or as many as already hold something.
+      // `shown` lives on the array so it resets together with the draft.
+      const last = arr.reduce((n, b, j) => (b.label || b.action ? j + 1 : n), 0);
+      arr.shown = Math.max(1, last);
+      this._draft[i] = arr;
+    }
+    return this._draft[i];
+  }
+
+  _buttonsSection(cams) {
+    const sel = this._btnSel(cams);
+    const nameOf = (c, i) => c.name || (c.entity || '').replace(/^camera\./, '').replace(/_/g, ' ') || `Camera ${i + 1}`;
+    const cameraOptions = cams.map((c, i) => {
+      const count = c.buttons?.length || 0;
+      return `<option value="${i}" ${i === sel ? 'selected' : ''}>${i + 1}. ${esc(nameOf(c, i))}${count ? ` (${count} button${count === 1 ? '' : 's'})` : ''}</option>`;
+    }).join('');
+
+    const cam = cams[sel];
+    let body = '', add = '';
+    if (!cam?.entity) {
+      body = `<div class="empty"><small class="hint">Pick a camera on the <a href="#" class="lnk" data-goto="cameras">Cameras tab</a> first.</small></div>`;
+    } else {
+      const slots = this._slots(sel, cams);
+      body = `<div class="slots">${slots.slice(0, slots.shown).map((b, j) => `
+        <div class="slot">
+          <div class="slot-head">
+            <span>Button ${j + 1}</span>
+            <button type="button" class="xb" data-clear-slot="${j}">${slots.shown > 1 ? 'Remove' : 'Clear'}</button>
+          </div>
+          <input class="tf" data-button-label="${j}" placeholder="Label" value="${esc(b.label)}">
+          <ha-selector data-button-action="${j}"></ha-selector>
+        </div>`).join('')}</div>`;
+      if (slots.shown < 4) add = '<button type="button" class="add-btn" id="add-slot">+ Add another button</button>';
+    }
+
+    return this._sec(
+      '1. Choose a camera',
+      cams.length > 1 ? 'Buttons belong to one camera each.' : 'Buttons appear under this camera on the card.',
+      cams.length > 1
+        ? `<select class="button-camera" data-btn-cam aria-label="Camera to configure buttons for">${cameraOptions}</select>`
+        : `<small class="hint">${esc(nameOf(cams[0] || {}, 0))}</small>`
+    ) + this._sec(
+      '2. Set up its buttons',
+      'Up to four per camera. A button is saved once it has both a label and an action.',
+      `${body}${add}`
+    );
+  }
+
+  _bindButtons(cams) {
+    this.querySelectorAll('[data-btn-cam]').forEach(select => select.addEventListener('change', () => {
+      this._btnCam = Number(select.value);
+      this._render();
+    }));
+
+    const i = this._btnSel(cams);
+    if (!cams[i]?.entity) return;
+    const slots = this._slots(i, cams);
+
+    // Every config change makes Home Assistant rebuild the live preview card, so
+    // typing must not commit per keystroke. The draft updates immediately; the
+    // config is written after a pause, or at once when the field loses focus.
+    this.querySelectorAll('[data-button-label]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        slots[Number(inp.dataset.buttonLabel)].label = inp.value;
+        clearTimeout(this._btnTimer);
+        this._btnTimer = setTimeout(() => this._commitButtons(i), 1000);
+      });
+      inp.addEventListener('change', () => {
+        clearTimeout(this._btnTimer);
+        this._commitButtons(i);
+      });
+    });
+
+    this.querySelectorAll('ha-selector[data-button-action]').forEach(selector => {
+      const j = Number(selector.dataset.buttonAction);
+      selector.hass = this._hass;
+      selector.selector = { action: {} };
+      selector.value = slots[j].action;
+      selector.addEventListener('value-changed', e => {
+        e.stopPropagation();
+        const v = e.detail.value;
+        // ha-selector is a controlled component: it draws whatever .value says.
+        // Without feeding the new value back it never shows the choice (and the
+        // action editor inside restarts from empty on its next change).
+        selector.value = v;
+        if (JSON.stringify(v) === JSON.stringify(slots[j].action)) return;
+        slots[j].action = v;
+        clearTimeout(this._btnTimer); // the commit below carries the current label too
+        this._commitButtons(i);
+      });
+    });
+
+    this.querySelectorAll('[data-clear-slot]').forEach(b => b.addEventListener('click', () => {
+      const j = Number(b.dataset.clearSlot);
+      clearTimeout(this._btnTimer);
+      if (slots.shown > 1) {
+        // Drop the slot and close the gap, so the remaining ones keep their order.
+        slots.splice(j, 1);
+        slots.push({ label: '', action: undefined });
+        slots.shown--;
+      } else {
+        slots[j] = { label: '', action: undefined };
+      }
+      this._commitButtons(i);
+      this._render();
+    }));
+
+    this.querySelector('#add-slot')?.addEventListener('click', () => {
+      slots.shown = Math.min(4, slots.shown + 1);
+      this._render();
+    });
+  }
+
+  _commitButtons(i) {
+    const complete = (this._draft?.[i] || [])
+      .filter(b => b.label.trim() && b.action)
+      .map(b => ({ label: b.label.trim(), action: b.action }));
+    // Nothing saved has changed (e.g. a label typed into a slot that has no
+    // action yet), so do not touch the config and do not reload the card.
+    const saved = this._config?.cameras?.[i]?.buttons || [];
+    if (JSON.stringify(saved) === JSON.stringify(complete)) return;
+    const cams = this._getCams();
+    cams[i] = { ...cams[i] };
+    if (complete.length) cams[i].buttons = complete; else delete cams[i].buttons;
+    this._config = { ...this._config, cameras: cams };
+    this._u();
+    const option = this.querySelector(`[data-btn-cam] option[value="${i}"]`);
+    if (option) {
+      const name = cams[i].name || (cams[i].entity || '').replace(/^camera\./, '').replace(/_/g, ' ') || `Camera ${i + 1}`;
+      option.textContent = `${i + 1}. ${name}${complete.length ? ` (${complete.length} button${complete.length === 1 ? '' : 's'})` : ''}`;
+    }
+  }
+
+  // ---- Layout helpers -----------------------------------------------------
 
   // What the current settings produce at a given card width. The card does this
   // same sum; showing it beats making someone resize a phone to find out.
@@ -350,6 +715,8 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       <div class="lay-lbl">${l.label}</div></button>`;
   }
 
+  // ---- Config assembly ----------------------------------------------------
+
   _getCams() {
     const rows = [...this.querySelectorAll('[data-row]')];
     return rows.map((r, idx) => {
@@ -358,28 +725,36 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       // one, so compare it with the default for this place in the list.
       const pickedColor = r.querySelector('[data-cam-color]')?.value || '';
       const color = isHex(pickedColor) && pickedColor.toLowerCase() !== camSolid(idx, rows.length).toLowerCase() ? pickedColor : null;
+      // Buttons live in the config, not the DOM.
+      const buttons = this._config?.cameras?.[idx]?.buttons || [];
       return {
         entity: r.querySelector('[data-cam-entity]')?.value || '',
         name: r.querySelector('[data-cam-name]')?.value || '',
         // Only carry a size when it is not the default, to keep configs clean.
         ...(span > 1 ? { span } : {}),
         ...(color ? { color } : {}),
+        ...(buttons.length ? { buttons } : {}),
       };
     });
   }
+
   _u() {
-    const g = id => this.querySelector('#'+id)?.value?.trim() || '';
+    const g = id => this.querySelector('#' + id)?.value?.trim() || '';
     const cams = this._getCams().filter(c => c.entity);
     const c = { ...this._config };
-    if (cams.length > 1) { c.cameras = cams; delete c.camera_entity; }
+    // A single camera with buttons keeps the cameras array, otherwise its
+    // buttons would be thrown away by the camera_entity shorthand.
+    if (cams.length > 1 || cams.some(cam => cam.buttons?.length)) { c.cameras = cams; delete c.camera_entity; }
     else if (cams.length === 1) { c.camera_entity = cams[0].entity; delete c.cameras; }
-    const t=g('title'),s=g('subtitle'),w=g('window_hours'),r=g('rotate_seconds');
-    if(t) c.title=t; else delete c.title;
-    if(s) c.subtitle=s; else delete c.subtitle;
+    const t = g('title'), s = g('subtitle'), w = g('window_hours'), r = g('rotate_seconds');
+    if (t) c.title = t; else delete c.title;
+    const urlId = g('url_id');
+    if (urlId) c.url_id = urlId; else delete c.url_id;
+    if (s) c.subtitle = s; else delete c.subtitle;
     // Only a deliberate choice goes into the YAML. Writing the default along with
     // every save froze each editor-made card at the old default of 24 hours.
-    if(w && Number(w)!==6) c.window_hours=Number(w); else delete c.window_hours;
-    c.rotate_seconds = Number(r)||0;
+    if (w && Number(w) !== 6) c.window_hours = Number(w); else delete c.window_hours;
+    c.rotate_seconds = Number(r) || 0;
     // custom colors
     c.accent_color = this.querySelector('#use_accent')?.checked
       ? (this.querySelector('#accent_color')?.value || null) : null;
@@ -388,8 +763,12 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     // theme
     c.theme = this.querySelector('input[name="theme"]:checked')?.value || 'dark';
     // default view
-    const dv = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
-    c.default_view = dv;
+    c.default_view = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
+    const ptzPosition = this.querySelector('#ptz_position')?.value || 'right';
+    if (ptzPosition === 'right') delete c.ptz_position; else c.ptz_position = ptzPosition;
+    const ptzDefaultMode = this.querySelector('#ptz_default_mode')?.value || 'closed-all';
+    if (ptzDefaultMode === 'closed-all') delete c.ptz_default_mode; else c.ptz_default_mode = ptzDefaultMode;
+    c.ptz_mobile_overlay = this.querySelector('#ptz_mobile_overlay')?.checked === true;
     const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
     if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load
@@ -402,12 +781,19 @@ export class FrigateModernHassCardEditor extends HTMLElement {
     c.stream_height = sh ? Number(sh) : null;
     c.events_collapsed = this.querySelector('#events_collapsed')?.checked === true;
     if (this._config?.grid_layout) c.grid_layout = this._config.grid_layout;
-    const gc = this.querySelector('input[name="grid_columns"]:checked')?.value || 'auto';
-    c.grid_columns = gc === 'auto' ? 'auto' : Number(gc);
+    // The columns section is not rendered while a layout is active, so keep
+    // whatever was saved rather than overwriting it with the 'auto' fallback.
+    const gcEl = this.querySelector('input[name="grid_columns"]:checked');
+    if (gcEl) c.grid_columns = gcEl.value === 'auto' ? 'auto' : Number(gcEl.value);
     c.stack_on_mobile = this.querySelector('#stack_on_mobile')?.checked !== false;
     c.live_provider = this.querySelector('input[name="live_provider"]:checked')?.value === 'go2rtc' ? 'go2rtc' : 'hls';
     c.go2rtc_mode = this.querySelector('input[name="go2rtc_mode"]:checked')?.value || 'mse';
-    this._config=c; this._dispatch();
+    this._config = c; this._dispatch();
   }
-  _dispatch() { this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config}})); }
+
+  _dispatch() {
+    this.dispatchEvent(new CustomEvent('config-changed', {
+      detail: { config: this._config }, bubbles: true, composed: true,
+    }));
+  }
 }
