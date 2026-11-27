@@ -197,6 +197,10 @@ const STYLES = `
      bar along the bottom and the label bottom left; under the picture when it
      is small (ptz-below). On a phone the timeline also makes way (narrow). */
   .ptz-pad{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:7;display:flex;align-items:center;gap:10px;}
+  .card:not(.ptz-below).ptz-pos-top-left .ptz-pad{left:5%;right:auto;top:12%;bottom:auto;transform:none;}
+  .card:not(.ptz-below).ptz-pos-top-right .ptz-pad{left:auto;right:5%;top:12%;bottom:auto;transform:none;}
+  .card:not(.ptz-below).ptz-pos-bottom-left .ptz-pad{left:5%;right:auto;top:auto;bottom:12%;transform:none;}
+  .card:not(.ptz-below).ptz-pos-bottom-right .ptz-pad{left:auto;right:5%;top:auto;bottom:12%;transform:none;}
   .ptz-zoom{display:flex;flex-direction:column;gap:8px;}
   .pbtn{background:rgba(15,21,40,.72);border:1px solid rgba(255,255,255,.18);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;
     -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;transition:background .12s,transform .08s;padding:0;}
@@ -216,7 +220,7 @@ const STYLES = `
   .ptz-presets .chip{padding:5px 11px;font-size:12px;font-weight:600;}
   .ptz-cap{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--c-text3);margin-right:4px;}
   .card.ptz-below .ptz-pad{position:relative;right:auto;top:auto;transform:none;justify-content:center;gap:18px;padding:12px 0 2px;}
-  .card.ptz-below .pbtn{background:var(--c-bg-panel);border-color:var(--c-border2);color:var(--c-text);}
+  .card.ptz-below .ptz-pad .pbtn{background:var(--c-bg-panel);border-color:var(--c-border2);color:var(--c-text);}
   .card.ptz-below .pbtn.on{background:var(--c-acc);border-color:var(--c-acc);color:#fff;}
   .card.ptz-below .ptz-dpad{background:var(--c-bg-panel);border-color:var(--c-border2);}
   .card.ptz-below .ptz-dpad .hub{background:var(--c-border2);}
@@ -1300,6 +1304,7 @@ class FrigateModernHassCard extends HTMLElement {
   static getStubConfig() { return { camera_entity: 'camera.front_door' }; }
 
   setConfig(config) {
+    const previousPtzDefaultMode = this._config?.ptz_default_mode;
     let cameras;
     if (config.cameras && Array.isArray(config.cameras) && config.cameras.length)
       cameras = config.cameras.map(c => ({ entity: c.entity, name: c.name || null, span: normSpan(c.span), color: isHex(c.color) ? c.color : null, ptz: c.ptz !== false, talk: c.talk !== false, buttons: Array.isArray(c.buttons) ? c.buttons.slice(0, 4).filter(b => b && b.label && b.action).map(b => ({ label: String(b.label).slice(0, 40), action: b.action })) : [] }));
@@ -1350,6 +1355,11 @@ class FrigateModernHassCard extends HTMLElement {
       // ONVIF. On by default since nothing shows for a camera without it; off
       // for a wall display nobody should be steering cameras from.
       ptz: config.ptz !== false,
+      ptz_default_mode: ['open-both', 'desktop-only'].includes(config.ptz_default_mode) ? config.ptz_default_mode : 'closed-all',
+      ptz_position: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(config.ptz_position) ? config.ptz_position : 'right',
+      ptz_mobile_overlay: config.ptz_mobile_overlay === true,
+      ptz_mobile_scale: Number.isFinite(Number(config.ptz_mobile_scale)) && Number(config.ptz_mobile_scale) > 0
+        ? Number(config.ptz_mobile_scale) : 0.6,
       // Talking through the camera, for cameras whose go2rtc stream takes audio
       // back. On by default since nothing shows without it.
       talk: config.talk !== false,
@@ -1371,10 +1381,15 @@ class FrigateModernHassCard extends HTMLElement {
       // the choice to the player (it tries WebRTC first).
       go2rtc_mode: ['auto', 'webrtc', 'mse'].includes(config.go2rtc_mode) ? config.go2rtc_mode : 'mse',
     };
+    if (previousPtzDefaultMode !== undefined && previousPtzDefaultMode !== this._config.ptz_default_mode) {
+      this._ptzDefaultApplied = false;
+      this._ptzOpen = false;
+    }
     this._browseOpen = this._config.browse_expanded;
     this._eventsCollapsed = this._config.events_collapsed;
     for (const c of cameras) { if (!this._camCache[c.entity]) this._camCache[c.entity] = mkCamState(); }
     this._renderShell();
+    if (this._started) this._renderPtz();
   }
 
   set hass(hass) {
@@ -2517,6 +2532,7 @@ class FrigateModernHassCard extends HTMLElement {
   _renderPtz() {
     const q = sel => this.shadowRoot.querySelector(sel);
     const caps = this._ptzCaps();
+    this._applyPtzDefault(caps);
     const open = !!(caps && this._ptzOpen);
     if (!open) this._ptzOpen = false;
     q('.card')?.classList.toggle('ptz-open', open);
@@ -2536,6 +2552,14 @@ class FrigateModernHassCard extends HTMLElement {
     }
     this._placePtz();
   }
+  _applyPtzDefault(caps) {
+    if (this._ptzDefaultApplied || !caps || !this._cardWidth) return;
+    this._ptzDefaultApplied = true;
+    const mode = this._config?.ptz_default_mode || 'closed-all';
+    // Keep PTZ defaults aligned with the card's shared phone breakpoint.
+    const mobile = this._cardWidth < PHONE_PX;
+    this._ptzOpen = mode === 'open-both' || (mode === 'desktop-only' && !mobile);
+  }
   // On a large picture the pad sits on it; on a small one, under it. What
   // counts is the picture, not the card: a wide card with the events panel open
   // still has a small picture, and a pad on top of that covers most of it.
@@ -2545,10 +2569,16 @@ class FrigateModernHassCard extends HTMLElement {
     const pad = q('#ptz-pad'), wrap = q('#eng-wrap'), pre = q('#ptz-presets'), card = q('.card');
     if (!pad || !wrap || !pre || !card) return;
     const w = wrap.clientWidth;
+    const cardWidth = this._cardWidth || this.offsetWidth;
+    const mobileFloating = !!this._config?.ptz_mobile_overlay && cardWidth > 0 && cardWidth < PHONE_PX;
+    const position = this._config?.ptz_position || 'right';
+    card.classList.remove('ptz-pos-top-left', 'ptz-pos-top-right', 'ptz-pos-bottom-left', 'ptz-pos-bottom-right');
+    if (position !== 'right') card.classList.add(`ptz-pos-${position}`);
     // In fullscreen only the picture is on screen, so the pad has to be on it.
     const inFs = (this.shadowRoot.fullscreenElement || this.shadowRoot.webkitFullscreenElement) === wrap;
-    const below = !inFs && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
+    const below = !inFs && !mobileFloating && (w > 0 ? w < PTZ_OVERLAY_MIN_PX : card.classList.contains('narrow'));
     card.classList.toggle('ptz-below', below);
+    pad.style.scale = mobileFloating && !below ? String(this._config.ptz_mobile_scale) : '';
     if (below && pad.parentNode === wrap) pre.parentNode.insertBefore(pad, pre);
     else if (!below && pad.parentNode !== wrap) wrap.appendChild(pad);
   }
@@ -2763,6 +2793,7 @@ class FrigateModernHassCard extends HTMLElement {
       this._renderAll();
     }
     this._renderStreamCtrl();
+    this._renderPtz();
     this._renderCamSwitcher();
     this._applyBrowse();
     this.shadowRoot.querySelectorAll('[data-viewmode]').forEach(p =>
@@ -2785,6 +2816,7 @@ class FrigateModernHassCard extends HTMLElement {
     }
     this._activeCamIdx = idx;
     this._writeUrlState();
+    this._renderPtz();
     const newEnt = this._activeCam?.entity;
     if (!this._camCache[newEnt]) this._camCache[newEnt] = mkCamState();
     // Start the stream before waiting on anything else. The picture is what the
@@ -3188,6 +3220,7 @@ class FrigateModernHassCard extends HTMLElement {
       // Below the stacking line the PTZ controls go under the picture.
       card.classList.toggle('narrow', w < PHONE_PX);
       this._placePtz();
+      this._renderPtz();
       this._applyBrowse();
       this._applyEventsCollapsed();
       // Events are grouped by on-screen distance, which a new width changes,
@@ -4304,7 +4337,6 @@ class FrigateModernHassCardEditor extends HTMLElement {
             <option value="">Select camera</option>
             ${opts(c.entity || '')}
           </select>
-          ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
         </div>
         <div class="cam-opts">
           <label class="mini grow"><span class="hint">Display name</span>
@@ -4323,6 +4355,8 @@ class FrigateModernHassCardEditor extends HTMLElement {
               ${isHex(c.color) ? `<button type="button" class="crst" data-reset-color="${i}" title="Back to the default colour">↺</button>` : ''}
             </div>
           </div>` : ''}
+            ${cams.length > 1 ? `<button type="button" class="xb" data-remove-cam="${i}" title="Remove this camera">✕</button>` : ''}
+
         </div>
       </div>`).join('');
 
@@ -4386,6 +4420,20 @@ class FrigateModernHassCardEditor extends HTMLElement {
          ${this._radio('default_view', 'single', 'Single camera', defaultView === 'single')}
          ${this._radio('default_view', 'grid', 'Grid (all cameras)', defaultView === 'grid')}
        </div>`
+    ) + this._sec(
+      'PTZ options',
+      'Choose where the PTZ pad appears and whether it opens when a supported camera is ready. On small pictures, the pad stays below the video so it does not cover the view.',
+      `<label class="fld"><span class="field-label">Controls position</span>
+         <select name="ptz_position" id="ptz_position" class="tf ptz-select">
+           ${[['right', 'Right center'], ['top-left', 'Top left'], ['top-right', 'Top right'], ['bottom-left', 'Bottom left'], ['bottom-right', 'Bottom right']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_position || 'right') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="fld"><span class="field-label">Open by default</span>
+         <select name="ptz_default_mode" id="ptz_default_mode" class="tf ptz-select">
+           ${[['closed-all', 'Closed by default on all devices'], ['open-both', 'Open by default on both'], ['desktop-only', 'Closed by default on mobile']].map(([v, l]) => `<option value="${v}" ${(cfg.ptz_default_mode || 'closed-all') === v ? 'selected' : ''}>${l}</option>`).join('')}
+         </select>
+       </label>
+       <label class="chk-lbl"><input type="checkbox" name="ptz_mobile_overlay" id="ptz_mobile_overlay" ${cfg.ptz_mobile_overlay === true ? 'checked' : ''}> Float PTZ controls over the video on mobile</label>`
     ) + this._sec(
       'Grid layout',
       'The numbers match the tile numbers on the Cameras tab. A layout sets the columns and tile sizes together.',
@@ -4520,6 +4568,7 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .tf,.ce,.cn,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:13px;padding:8px;
         background:var(--ed-field);color:var(--primary-text-color,#111);width:100%;}
       .tf.narrow{max-width:140px;}
+      .ptz-select{max-width:300px;}
       .tf:focus,.ce:focus,.cn:focus,.cs:focus{outline:2px solid var(--ed-acc);outline-offset:1px;}
       .fld .hint{display:block;margin-top:4px;}
 
@@ -4530,20 +4579,21 @@ class FrigateModernHassCardEditor extends HTMLElement {
       .stack-opt{margin-top:2px;}
 
       /* Camera cards */
-      .cam-list{display:flex;flex-direction:column;gap:10px;}
-      .cam{border:1px solid var(--ed-line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;}
-      .cam-top{display:flex;gap:8px;align-items:center;}
-      .cam-top .ce{flex:1;min-width:0;width:auto;}
-      .cam-opts{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-left:34px;}
-      .mini{display:flex;flex-direction:column;gap:3px;}
-      .mini.grow{flex:1;min-width:140px;}
-      .mini .cs{width:auto;}
+      .cam-list{display:flex;flex-direction:column;gap:2px;overflow-x:auto;}
+      .cam{display:flex;gap:8px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid var(--ed-line);}
+      .cam-top,.cam-opts{display:contents;}
+      .cam .ce{flex:1 1 220px;max-width:300px;min-width:0;width:100%;}
+      .cam-opts .mini{display:block;flex:0 1 auto;min-width:0;}
+      .cam-opts .mini .hint{display:none;}
+      .cam-opts .mini.grow{flex:1 1 140px;min-width:80px;}
+      .cam-opts .cn{width:100%;}
+      .cam-opts .cs{width:auto;}
       .cnum{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
         color:var(--ed-acc);border:1px solid var(--ed-acc);border-radius:6px;font-size:11px;font-weight:700;}
-      .color-row{display:flex;align-items:center;gap:6px;min-height:34px;}
-      .ccol{width:34px;height:34px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
+      .color-row{display:flex;align-items:center;gap:4px;min-height:30px;flex-shrink:0;}
+      .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;}
       .big-col{width:44px;height:32px;border:none;padding:2px;border-radius:6px;cursor:pointer;background:transparent;}
-      .crst{width:24px;height:30px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
+      .crst{width:22px;height:28px;padding:0;border:none;background:transparent;color:var(--ed-dim);cursor:pointer;font-size:15px;}
       .xb{padding:5px 9px;border:1px solid var(--error-color,#f87171);background:transparent;
         color:var(--error-color,#b91c1c);border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;}
       .add-btn{align-self:flex-start;padding:7px 14px;border:1px solid var(--ed-acc);background:transparent;color:var(--ed-acc);
@@ -4891,6 +4941,11 @@ class FrigateModernHassCardEditor extends HTMLElement {
     c.theme = this.querySelector('input[name="theme"]:checked')?.value || 'dark';
     // default view
     c.default_view = this.querySelector('input[name="default_view"]:checked')?.value || 'single';
+    const ptzPosition = this.querySelector('#ptz_position')?.value || 'right';
+    if (ptzPosition === 'right') delete c.ptz_position; else c.ptz_position = ptzPosition;
+    const ptzDefaultMode = this.querySelector('#ptz_default_mode')?.value || 'closed-all';
+    if (ptzDefaultMode === 'closed-all') delete c.ptz_default_mode; else c.ptz_default_mode = ptzDefaultMode;
+    c.ptz_mobile_overlay = this.querySelector('#ptz_mobile_overlay')?.checked === true;
     const tf = this.querySelector('input[name="time_format"]:checked')?.value || 'auto';
     if (tf === 'auto') delete c.time_format; else c.time_format = tf;
     // rotate on load

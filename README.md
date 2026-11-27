@@ -95,6 +95,10 @@ default_view: single     # or 'grid'
 | `live_provider` | string | `hls` | Live view source: `hls` (Home Assistant stream) or `go2rtc` |
 | `go2rtc_mode` | string | `mse` | go2rtc transport: `mse`, `webrtc`, or `auto` |
 | `ptz` | boolean | `true` | Pan, tilt and zoom controls for cameras that support them. Set `false` on the card or on one camera to hide them |
+| `ptz_default_mode` | string | `closed-all` | Initial PTZ state: `closed-all`, `open-both`, or `desktop-only` (closed on mobile, open on desktop) |
+| `ptz_position` | string | `right` | PTZ pad position over the video: `right`, `top-left`, `top-right`, `bottom-left`, or `bottom-right`. Small videos keep the pad below the picture |
+| `ptz_mobile_overlay` | boolean | `false` | Float the PTZ pad over the video on mobile instead of placing it below |
+| `ptz_mobile_scale` | number | `0.6` | Scale applied to the PTZ pad only while mobile overlay is enabled; override in YAML |
 | `talk` | boolean | `true` | Talk through cameras that support two-way audio. Set `false` on the card or on one camera to hide it |
 | `debug` | boolean | `false` | Log to the browser console why the live view picked what it picked |
 
