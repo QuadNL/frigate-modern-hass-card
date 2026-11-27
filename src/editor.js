@@ -6,7 +6,9 @@ export class FrigateModernHassCardEditor extends HTMLElement {
   set hass(h) {
     this._hass = h;
     // Only re-render when the camera entity list actually changes — prevents dropdown closing
-    const key = this._frigateEntities().join(',');
+    const cameraStates = Object.keys(h.states).filter(e => e.startsWith('camera.')).sort()
+      .map(e => `${e}:${h.states[e].state === 'unavailable' || h.states[e].state === 'unknown' ? 'offline' : 'online'}`);
+    const key = `${this._frigateEntities().join(',')}|${cameraStates.join(',')}`;
     if (key !== this._lastEntityKey) { this._lastEntityKey = key; this._render(); }
   }
 
@@ -30,7 +32,18 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       ? this._config.cameras
       : (this._config?.camera_entity ? [{ entity: this._config.camera_entity, name: '' }] : [{ entity: '', name: '' }]);
 
-    const opts = (sel) => entityList.map(e => `<option value="${e}" ${e===sel?'selected':''}>${e}</option>`).join('');
+    const opts = (sel) => {
+      // Keep a configured camera in its row even when a refetch removes it from
+      // the discovery list. Otherwise the select loses its value and the next
+      // unrelated editor change silently removes it from the saved config.
+      const options = entityList.includes(sel) || !sel ? entityList : [...entityList, sel].sort();
+      return options.map(e => {
+        const state = this._hass?.states?.[e];
+        const unavailable = !state || state.state === 'unavailable' || state.state === 'unknown';
+        const selected = e === sel;
+        return `<option value="${e}" ${selected?'selected':''} ${selected && unavailable?'disabled':''} ${unavailable?'class="cam-unavailable"':''}>${e}${unavailable?' (unavailable)':''}</option>`;
+      }).join('');
+    };
 
     const layoutId = this._config?.grid_layout || 'auto';
     const usingLayout = layoutId !== 'auto';
@@ -89,6 +102,7 @@ export class FrigateModernHassCardEditor extends HTMLElement {
       .ce,.cn,.tf,.cs{border:1px solid var(--ed-line);border-radius:6px;font-size:12px;
         background:var(--ed-field);color:var(--primary-text-color,#111);box-sizing:border-box;}
       .ce,.cn{flex:1;padding:7px;min-width:0;}
+      .ce option.cam-unavailable{color:var(--secondary-text-color,#808080);}
       .tf{width:100%;padding:7px;}
       .cs{padding:7px 4px;flex-shrink:0;}
       .ccol{width:30px;height:30px;padding:0;border:1px solid var(--ed-line);border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0;}
